@@ -135,6 +135,31 @@ const detailContent = {
   },
 };
 
+const farmerRows = [
+  ['FRM10001', 'Ramesh Kumar', 'Sehore', '20 May 2025', 'Urea', '500 kg', 'Active'],
+  ['FRM10002', 'Sita Devi', 'Vidisha', '19 May 2025', 'DAP', '300 kg', 'Active'],
+  ['FRM10003', 'Mohan Lal', 'Raisen', '18 May 2025', 'Urea', '500 kg', 'Active'],
+  ['FRM10004', 'Shyam Singh', 'Hoshangabad', '17 May 2025', 'NPK 20:20:0:13', '250 kg', 'Inactive'],
+  ['FRM10005', 'Kamla Bai', 'Sehore', '15 May 2025', 'DAP', '300 kg', 'Active'],
+  ['FRM10006', 'Vijay Patel', 'Vidisha', '14 May 2025', 'Urea', '500 kg', 'Active'],
+  ['FRM10007', 'Radha Shankar', 'Raisen', '13 May 2025', 'NPK 20:20:0:13', '250 kg', 'Inactive'],
+  ['FRM10008', 'Gopal Das', 'Hoshangabad', '12 May 2025', 'Urea', '500 kg', 'Active'],
+];
+
+const previousRows = [
+  ['DST10021', 'Sehore', 'Green Agro Center', 'Urea', '1,250 bags', '22 May 2025', 'Verified'],
+  ['DST10022', 'Vidisha', 'Kisan Seva Store', 'DAP', '840 bags', '21 May 2025', 'Verified'],
+  ['DST10023', 'Raisen', 'Madhya Fertilizer Depot', 'NPK', '610 bags', '20 May 2025', 'Pending'],
+  ['DST10024', 'Hoshangabad', 'Krishi Supply Hub', 'Urea', '1,100 bags', '19 May 2025', 'Verified'],
+];
+
+const alertRows = [
+  ['ALT9001', 'Duplicate purchase attempt', 'Sehore', 'High', 'Open'],
+  ['ALT9002', 'Dealer stock mismatch', 'Vidisha', 'Medium', 'Reviewing'],
+  ['ALT9003', 'Farmer limit exceeded', 'Raisen', 'High', 'Open'],
+  ['ALT9004', 'Late transaction sync', 'Hoshangabad', 'Low', 'Resolved'],
+];
+
 function Icon({ type }) {
   const common = { width: 34, height: 34, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '1.8', strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true };
 
@@ -245,6 +270,237 @@ function Icon({ type }) {
   }
 }
 
+function DashboardPage({ activeSection, setActiveSection }) {
+  return (
+    <>
+      <section className="hero-copy">
+        <h2>Dashboard</h2>
+        <p>Welcome, Admin</p>
+      </section>
+
+      <section className="cards-grid" aria-label="Primary dashboard actions">
+        {actionCards.map((card) => (
+          <button
+            key={card.id}
+            type="button"
+            className={`action-card accent-${card.accent} ${activeSection === card.id ? 'is-selected' : ''}`}
+            onClick={() => setActiveSection(card.id)}
+          >
+            <span className="action-card__icon-wrap">
+              <span className="action-card__icon">
+                <Icon type={card.icon} />
+              </span>
+            </span>
+            <span className="action-card__title">{card.title}</span>
+            <span className="action-card__description">{card.description}</span>
+            <span className="action-card__cta">{card.action}</span>
+          </button>
+        ))}
+      </section>
+
+      <section className="stats-panel">
+        {statCards.map((stat) => (
+          <button
+            key={stat.id}
+            type="button"
+            className={`stat-card accent-${stat.accent} ${activeSection === stat.id ? 'is-selected' : ''}`}
+            onClick={() => setActiveSection(stat.id)}
+          >
+            <span className="stat-card__icon-wrap">
+              <span className="stat-card__icon">
+                <Icon type={stat.icon} />
+              </span>
+            </span>
+            <span className="stat-card__content">
+              <span className="stat-card__label">{stat.label}</span>
+              <span className="stat-card__value">{stat.value}</span>
+              <span className="stat-card__unit">{stat.unit}</span>
+            </span>
+          </button>
+        ))}
+      </section>
+    </>
+  );
+}
+
+function PageTitle({ title, subtitle, action }) {
+  return (
+    <section className="page-title">
+      <div>
+        <h2>{title}</h2>
+        <p>{subtitle}</p>
+      </div>
+      {action && <button type="button" className="outline-action">{action}</button>}
+    </section>
+  );
+}
+
+function MetricCard({ icon, label, value, unit, accent }) {
+  return (
+    <div className={`metric-card accent-${accent}`}>
+      <span className="metric-card__icon">
+        <Icon type={icon} />
+      </span>
+      <span>
+        <span className="metric-card__label">{label}</span>
+        <strong>{value}</strong>
+        {unit && <small>{unit}</small>}
+      </span>
+    </div>
+  );
+}
+
+function AddPage() {
+  return (
+    <section className="page-content">
+      <PageTitle title="Add Distribution Record" subtitle="Create a new fertilizer distribution entry for district, dealer, crop and stock details." />
+      <div className="form-panel">
+        <label>District<input value="Sehore" readOnly /></label>
+        <label>Dealer<input value="Green Agro Center" readOnly /></label>
+        <label>Fertilizer Type<input value="Urea" readOnly /></label>
+        <label>Quantity<input value="500 bags" readOnly /></label>
+        <label>Batch ID<input value="BCH-2025-1028" readOnly /></label>
+        <label>Distribution Date<input value="22 May 2025" readOnly /></label>
+        <button type="button" className="primary-action">Submit Record</button>
+      </div>
+    </section>
+  );
+}
+
+function PreviousPage() {
+  return (
+    <section className="page-content">
+      <PageTitle title="Previous Distribution Records" subtitle="View and manage previously added distribution records." action="Export" />
+      <div className="filter-row">
+        <input value="Search by record, district or dealer..." readOnly />
+        <select value="All Districts" readOnly><option>All Districts</option></select>
+        <select value="All Fertilizers" readOnly><option>All Fertilizers</option></select>
+      </div>
+      <DataTable
+        columns={['Record ID', 'District', 'Dealer', 'Fertilizer', 'Quantity', 'Date', 'Status']}
+        rows={previousRows}
+      />
+    </section>
+  );
+}
+
+function AnalysisPage() {
+  return (
+    <section className="page-content">
+      <PageTitle title="AI Analysis" subtitle="Analyze distribution patterns and detect irregularities using AI." />
+      <div className="metric-grid">
+        <MetricCard icon="brain" label="Risk Score" value="72" unit="/ 100" accent="purple" />
+        <MetricCard icon="warning" label="Flagged Clusters" value="8" accent="orange" />
+        <MetricCard icon="store" label="Dealer Variance" value="14%" accent="blue" />
+        <MetricCard icon="bag" label="Demand Forecast" value="18,900" unit="bags" accent="green" />
+      </div>
+      <div className="insight-grid">
+        <article className="insight-card">
+          <h3>High Demand Districts</h3>
+          <p>Sehore and Vidisha are projected to need additional Urea allocation in the next cycle.</p>
+        </article>
+        <article className="insight-card">
+          <h3>Irregular Activity</h3>
+          <p>Three dealers show purchase frequency above the expected range for their registered farmer count.</p>
+        </article>
+        <article className="insight-card">
+          <h3>Stock Recommendation</h3>
+          <p>Move 600 bags from low-demand blocks to active wheat and rice regions before month end.</p>
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function AlertsPage() {
+  return (
+    <section className="page-content">
+      <PageTitle title="Alerts" subtitle="View alerts and suspicious activities requiring attention." />
+      <div className="metric-grid">
+        <MetricCard icon="warning" label="Active Alerts" value="24" accent="orange" />
+        <MetricCard icon="bell" label="High Priority" value="6" accent="purple" />
+        <MetricCard icon="document" label="In Review" value="11" accent="blue" />
+        <MetricCard icon="grid" label="Resolved Today" value="7" accent="green" />
+      </div>
+      <DataTable
+        columns={['Alert ID', 'Issue', 'District', 'Priority', 'Status']}
+        rows={alertRows}
+      />
+    </section>
+  );
+}
+
+function FarmerRecordsPage() {
+  return (
+    <section className="page-content">
+      <PageTitle title="Farmer Records" subtitle="View and manage farmer details and transaction history." action="Export" />
+      <div className="filter-row">
+        <input value="Search by farmer name, ID or phone..." readOnly />
+        <select value="All Districts" readOnly><option>All Districts</option></select>
+        <select value="All Status" readOnly><option>All Status</option></select>
+        <button type="button" className="filter-button">Filters</button>
+      </div>
+      <div className="metric-grid">
+        <MetricCard icon="user" label="Total Farmers" value="8,752" accent="teal" />
+        <MetricCard icon="document" label="Total Transactions" value="18,540" accent="blue" />
+        <MetricCard icon="bag" label="Total Fertilizer Distributed" value="42,350" unit="MT" accent="purple" />
+        <MetricCard icon="warning" label="Active Farmers" value="7,210" accent="orange" />
+      </div>
+      <DataTable
+        columns={['Aadhar Card ID', 'Farmer Name', 'District', 'Last Transaction', 'Fertilizer Received', 'Total Received', 'Status', 'Action']}
+        rows={farmerRows.map((row) => [...row, 'View Details'])}
+        footer="Showing 1 to 8 of 8,752 records"
+      />
+    </section>
+  );
+}
+
+function DataTable({ columns, rows, footer }) {
+  return (
+    <div className="table-panel">
+      <table>
+        <thead>
+          <tr>
+            {columns.map((column) => <th key={column}>{column}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.join('-')}>
+              {row.map((cell, index) => {
+                const isStatus = columns[index] === 'Status';
+                const isAction = columns[index] === 'Action';
+
+                return (
+                  <td key={`${cell}-${index}`}>
+                    {isStatus && <span className={`status-pill ${cell === 'Active' || cell === 'Verified' || cell === 'Resolved' ? 'is-active' : 'is-warning'}`}>{cell}</span>}
+                    {isAction && <button type="button" className="table-action">{cell}</button>}
+                    {!isStatus && !isAction && cell}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {footer && (
+        <div className="table-footer">
+          <span>{footer}</span>
+          <div className="pagination">
+            <button type="button">‹</button>
+            <button type="button" className="is-current">1</button>
+            <button type="button">2</button>
+            <button type="button">3</button>
+            <span>...</span>
+            <button type="button">876</button>
+            <button type="button">›</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App() {
   const [activeSection, setActiveSection] = useState('dashboard');
 
@@ -313,57 +569,20 @@ function App() {
           </button>
         </header>
 
-        <section className="hero-copy">
-          <h2>Dashboard</h2>
-          <p>Welcome, Admin</p>
-        </section>
-
-        <section className="cards-grid" aria-label="Primary dashboard actions">
-          {actionCards.map((card) => (
-            <button
-              key={card.id}
-              type="button"
-              className={`action-card accent-${card.accent} ${activeSection === card.id ? 'is-selected' : ''}`}
-              onClick={() => setActiveSection(card.id)}
-            >
-              <span className="action-card__icon-wrap">
-                <span className="action-card__icon">
-                  <Icon type={card.icon} />
-                </span>
-              </span>
-              <span className="action-card__title">{card.title}</span>
-              <span className="action-card__description">{card.description}</span>
-              <span className="action-card__cta">{card.action}</span>
-            </button>
-          ))}
-        </section>
-
-        <section className="stats-panel">
-          {statCards.map((stat) => (
-            <button
-              key={stat.id}
-              type="button"
-              className={`stat-card accent-${stat.accent} ${activeSection === stat.id ? 'is-selected' : ''}`}
-              onClick={() => setActiveSection(stat.id)}
-            >
-              <span className="stat-card__icon-wrap">
-                <span className="stat-card__icon">
-                  <Icon type={stat.icon} />
-                </span>
-              </span>
-              <span className="stat-card__content">
-                <span className="stat-card__label">{stat.label}</span>
-                <span className="stat-card__value">{stat.value}</span>
-                <span className="stat-card__unit">{stat.unit}</span>
-              </span>
-            </button>
-          ))}
-        </section>
-
-        <section className="detail-panel" aria-live="polite">
-          <h3>{activeDetail.title}</h3>
-          <p>{activeDetail.body}</p>
-        </section>
+        {activeSection === 'dashboard' && (
+          <DashboardPage activeSection={activeSection} setActiveSection={setActiveSection} />
+        )}
+        {activeSection === 'add' && <AddPage />}
+        {activeSection === 'records' && <PreviousPage />}
+        {activeSection === 'analysis' && <AnalysisPage />}
+        {activeSection === 'alerts' && <AlertsPage />}
+        {activeSection === 'farmers' && <FarmerRecordsPage />}
+        {!['dashboard', 'add', 'records', 'analysis', 'alerts', 'farmers'].includes(activeSection) && (
+          <section className="detail-panel" aria-live="polite">
+            <h3>{activeDetail.title}</h3>
+            <p>{activeDetail.body}</p>
+          </section>
+        )}
 
         <footer className="footer-note">© 2025 Government of India. All rights reserved.</footer>
       </main>
