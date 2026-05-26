@@ -97,25 +97,29 @@ function App() {
             </header>
 
             <section className="section stats-row">
-              <div className="stat-card card-blue">
+              <div className="stat-card card-green">
                 <span className="stat-icon">👨‍🌾</span>
                 <p>Total farmers registered</p>
                 <strong>1,250</strong>
+                <button className="view-button">View</button>
               </div>
-              <div className="stat-card card-teal">
+              <div className="stat-card card-blue">
                 <span className="stat-icon">📦</span>
                 <p>Total scanned</p>
                 <strong>482</strong>
+                <button className="view-button">View</button>
               </div>
-              <div className="stat-card card-green">
+              <div className="stat-card card-orange">
                 <span className="stat-icon">🛒</span>
                 <p>Total sold</p>
                 <strong>348</strong>
+                <button className="view-button">View</button>
               </div>
-              <div className="stat-card card-orange">
+              <div className="stat-card card-purple">
                 <span className="stat-icon">⚠️</span>
                 <p>Active alerts</p>
                 <strong>12</strong>
+                <button className="view-button">View</button>
               </div>
             </section>
           </>
