@@ -7,6 +7,7 @@ require('dotenv').config({
 const express = require('express');
 const cors = require('cors');
 const batchRoutes = require('./routes/batchRoutes');
+const farmerRecordRoutes = require('./routes/farmerRecordRoutes');
 const qrRoutes = require('./routes/qrRoutes');
 
 const app = express();
@@ -20,6 +21,7 @@ app.get('/', (req, res) => {
 });
 
 app.use('/api/batches', batchRoutes);
+app.use('/api/farmer-records', farmerRecordRoutes);
 app.use('/api/qrcodes', qrRoutes);
 
 app.listen(port, () => {

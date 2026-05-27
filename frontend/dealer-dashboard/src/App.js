@@ -1,5 +1,8 @@
+import { Html5Qrcode } from 'html5-qrcode';
+import { useEffect, useRef, useState } from 'react';
 import './App.css';
-import { useState } from 'react';
+
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
 const translations = {
   en: {
@@ -198,6 +201,286 @@ const translations = {
     farmerNotFound: 'शेतकरी सापडला नाही'
   }
 };
+
+async function readJsonResponse(response) {
+  const responseText = await response.text();
+
+  try {
+    return responseText ? JSON.parse(responseText) : {};
+  } catch (error) {
+    throw new Error(`Server returned ${response.status} ${response.statusText} instead of JSON.`);
+  }
+}
+
+function ScanIcon() {
+  return (
+    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 8V5a1 1 0 0 1 1-1h3" />
+      <path d="M16 4h3a1 1 0 0 1 1 1v3" />
+      <path d="M20 16v3a1 1 0 0 1-1 1h-3" />
+      <path d="M8 20H5a1 1 0 0 1-1-1v-3" />
+      <path d="M7 12h10" />
+      <path d="M9 9h6v6H9z" />
+    </svg>
+  );
+}
+
+function ScannerPage() {
+  const scannerRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const scanRequestRef = useRef(false);
+  const [cameras, setCameras] = useState([]);
+  const [selectedCamera, setSelectedCamera] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanStatus, setScanStatus] = useState('Ready');
+  const [scanResult, setScanResult] = useState('');
+  const [scanUpdate, setScanUpdate] = useState(null);
+  const [scanError, setScanError] = useState('');
+  const isResultUrl = /^https?:\/\//i.test(scanResult);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    Html5Qrcode.getCameras()
+      .then((availableCameras) => {
+        if (!isMounted) return;
+
+        setCameras(availableCameras);
+        if (availableCameras.length > 0) {
+          setSelectedCamera(availableCameras[0].id);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setScanStatus('Camera unavailable');
+        }
+      });
+
+    return () => {
+      isMounted = false;
+
+      if (scannerRef.current?.isScanning) {
+        scannerRef.current.stop()
+          .then(() => scannerRef.current?.clear())
+          .catch(() => {});
+      } else {
+        scannerRef.current?.clear?.();
+      }
+    };
+  }, []);
+
+  async function getScanner() {
+    if (!scannerRef.current) {
+      scannerRef.current = new Html5Qrcode('qr-reader');
+    }
+
+    return scannerRef.current;
+  }
+
+  async function stopScanner() {
+    const scanner = scannerRef.current;
+    if (!scanner) return;
+
+    if (scanner.isScanning) {
+      await scanner.stop();
+    }
+
+    scanner.clear();
+    setIsScanning(false);
+  }
+
+  function getBagIdFromScan(decodedText) {
+    try {
+      const parsedValue = JSON.parse(decodedText);
+      return parsedValue.bagId || parsedValue.bag_id || parsedValue.id || '';
+    } catch {
+      return decodedText;
+    }
+  }
+
+  async function handleScanSuccess(decodedText) {
+    if (scanRequestRef.current) return;
+
+    scanRequestRef.current = true;
+    setScanResult(decodedText);
+    setScanUpdate(null);
+    setScanError('');
+    setScanStatus('Updating bag status');
+
+    try {
+      if (scannerRef.current?.isScanning) {
+        await stopScanner();
+      }
+
+      const bagId = getBagIdFromScan(decodedText);
+
+      if (!bagId) {
+        throw new Error('The scanned QR code does not contain a bag ID.');
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/batches/scan`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ bagId }),
+      });
+
+      const result = await readJsonResponse(response);
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Unable to update bag status.');
+      }
+
+      setScanUpdate(result);
+      setScanStatus(result.changed ? 'Marked sent' : 'Already scanned');
+    } catch (error) {
+      setScanStatus('Scan update failed');
+      setScanError(error.message || 'Unable to update bag status.');
+    } finally {
+      scanRequestRef.current = false;
+    }
+  }
+
+  async function startScanner() {
+    setScanError('');
+    setScanStatus('Starting camera');
+
+    try {
+      const scanner = await getScanner();
+
+      if (scanner.isScanning) {
+        await stopScanner();
+      }
+
+      await scanner.start(
+        selectedCamera || { facingMode: 'environment' },
+        {
+          fps: 10,
+          qrbox: { width: 260, height: 260 },
+          aspectRatio: 1,
+        },
+        (decodedText) => {
+          handleScanSuccess(decodedText);
+        }
+      );
+
+      setIsScanning(true);
+      setScanStatus('Scanning');
+    } catch (error) {
+      setIsScanning(false);
+      setScanStatus('Camera unavailable');
+      setScanError(error?.message || 'Unable to start scanner.');
+    }
+  }
+
+  async function handleFileScan(event) {
+    const [file] = event.target.files || [];
+    if (!file) return;
+
+    setScanError('');
+    setScanStatus('Reading image');
+
+    try {
+      const scanner = await getScanner();
+
+      if (scanner.isScanning) {
+        await stopScanner();
+      }
+
+      const decodedText = await scanner.scanFile(file, true);
+      await handleScanSuccess(decodedText);
+    } catch (error) {
+      setScanStatus('No QR found');
+      setScanError(error?.message || 'No QR code could be read from this image.');
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  }
+
+  async function copyResult() {
+    if (!scanResult) return;
+
+    try {
+      await navigator.clipboard.writeText(scanResult);
+      setScanStatus('Copied');
+    } catch {
+      setScanError('Unable to copy result.');
+    }
+  }
+
+  return (
+    <div className="scanner-layout">
+      <section className="scanner-panel">
+        <div className="scanner-toolbar">
+          <select
+            value={selectedCamera}
+            onChange={(event) => setSelectedCamera(event.target.value)}
+            disabled={isScanning || cameras.length === 0}
+            aria-label="Camera"
+          >
+            {cameras.length === 0 && <option value="">Default camera</option>}
+            {cameras.map((camera, index) => (
+              <option key={camera.id} value={camera.id}>
+                {camera.label || `Camera ${index + 1}`}
+              </option>
+            ))}
+          </select>
+
+          <button type="button" className="primary-action" onClick={isScanning ? stopScanner : startScanner}>
+            {isScanning ? 'Stop' : 'Start'}
+          </button>
+
+          <label className="upload-action">
+            Upload
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileScan} />
+          </label>
+        </div>
+
+        <div className={`scanner-reader ${isScanning ? 'is-active' : ''}`}>
+          <div id="qr-reader" />
+          {!isScanning && (
+            <div className="scanner-placeholder">
+              <ScanIcon />
+            </div>
+          )}
+        </div>
+      </section>
+
+      <aside className="scanner-result-panel" aria-live="polite">
+        <span className="scanner-status">{scanStatus}</span>
+        <h3>Scan Result</h3>
+
+        {scanResult ? (
+          <>
+            <pre>{scanResult}</pre>
+            {scanUpdate && (
+              <div className={`scanner-update ${scanUpdate.changed ? 'is-sent' : 'is-unchanged'}`}>
+                <strong>{scanUpdate.bagId}</strong>
+                <span>{scanUpdate.message}</span>
+                <small>Batch: {scanUpdate.batchNumber || 'Not found'} | Status: {scanUpdate.status}</small>
+              </div>
+            )}
+            <div className="scanner-result-actions">
+              <button type="button" className="outline-action" onClick={copyResult}>Copy</button>
+              {isResultUrl && (
+                <a className="outline-action scanner-link" href={scanResult} target="_blank" rel="noreferrer">
+                  Open
+                </a>
+              )}
+            </div>
+          </>
+        ) : (
+          <p>No QR code scanned yet.</p>
+        )}
+
+        {scanError && <p className="form-hint form-hint--error">{scanError}</p>}
+      </aside>
+    </div>
+  );
+}
 
 function App() {
   const [currentPage, setCurrentPage] = useState('dashboard');
@@ -458,9 +741,7 @@ function App() {
                 <p className="subtitle">{texts.scanBatchSubtitle}</p>
               </div>
             </header>
-            <section className="empty-section">
-              <p>{texts.featureComingSoon}</p>
-            </section>
+            <ScannerPage />
           </>
         )}
 

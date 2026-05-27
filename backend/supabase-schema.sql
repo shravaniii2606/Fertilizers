@@ -35,3 +35,11 @@ on public.batches
 for select
 to anon
 using (true);
+
+drop policy if exists "Allow anon update batches" on public.batches;
+create policy "Allow anon update batches"
+on public.batches
+for update
+to anon
+using (true)
+with check (true);

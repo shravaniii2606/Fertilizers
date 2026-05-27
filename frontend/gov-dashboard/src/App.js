@@ -199,6 +199,29 @@ const farmerDetailsByAadhar = {
   },
 };
 
+function getFarmerTransactions(farmerId, lastTransaction, fertilizerType, totalReceived) {
+  const transactionTimes = ['10:30 AM', '12:15 PM', '02:40 PM', '04:05 PM', '05:25 PM'];
+  const transactionDates = [
+    lastTransaction,
+    '16 May 2025',
+    '12 May 2025',
+    '08 May 2025',
+    '04 May 2025',
+  ];
+  const totalKg = Number.parseFloat(String(totalReceived).replace(/[^\d.]/g, '')) || 250;
+  const kgPerTransaction = Math.max(1, Math.round(totalKg / 5));
+  const farmerSuffix = farmerId.replace(/\D/g, '').slice(-5) || '10000';
+
+  return transactionTimes.map((time, index) => [
+    `${transactionDates[index]}, ${time}`,
+    'Raj Singh Dealer',
+    fertilizerType,
+    `BATCH-${farmerSuffix}-${String(index + 1).padStart(2, '0')}`,
+    `${farmerId}-BAG-${String(index + 1).padStart(3, '0')}`,
+    `${kgPerTransaction} kg`,
+  ]);
+}
+
 function Icon({ type }) {
   const common = { width: 34, height: 34, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '1.8', strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true };
 
@@ -895,7 +918,40 @@ function FarmerRecordsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDistrict, setSelectedDistrict] = useState('All Districts');
   const [selectedStatus, setSelectedStatus] = useState('All Status');
-  const detailCardRef = useRef(null);
+  const [farmerMetrics, setFarmerMetrics] = useState({
+    totalFarmers: 8752,
+    activeFarmers: 7210,
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadFarmerMetrics() {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/farmer-records/metrics`);
+        const result = await readJsonResponse(response);
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Unable to load farmer metrics.');
+        }
+
+        if (isMounted) {
+          setFarmerMetrics({
+            totalFarmers: result.totalFarmers ?? 0,
+            activeFarmers: result.activeFarmers ?? 0,
+          });
+        }
+      } catch (error) {
+        console.error('Unable to load farmer metrics:', error);
+      }
+    }
+
+    loadFarmerMetrics();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const filteredFarmerRows = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -912,6 +968,56 @@ function FarmerRecordsPage() {
       return matchesSearch && matchesDistrict && matchesStatus;
     });
   }, [searchTerm, selectedDistrict, selectedStatus]);
+
+  if (selectedFarmer) {
+    return (
+      <section className="page-content">
+        <PageTitle
+          title="Farmer Details"
+          subtitle="Review the selected farmer record."
+          action="Back"
+          onAction={() => setSelectedFarmer(null)}
+        />
+
+        <section className="farmer-detail-card farmer-detail-card--page" aria-live="polite">
+          <div className="farmer-detail-card__header">
+            <div>
+              <p>Farmer Details</p>
+              <h3>{selectedFarmer.name}</h3>
+            </div>
+            <span className={`risk-pill risk-${selectedFarmer.riskLevel.toLowerCase()}`}>{selectedFarmer.riskLevel} Risk</span>
+          </div>
+          <div className="farmer-detail-grid">
+            <div><span>Aadhar Card ID</span><strong>{selectedFarmer.aadharCardId}</strong></div>
+            <div><span>District</span><strong>{selectedFarmer.district}</strong></div>
+            <div><span>Last Transaction</span><strong>{selectedFarmer.lastTransaction}</strong></div>
+            <div><span>Status</span><strong>{selectedFarmer.status}</strong></div>
+            <div><span>Land Size</span><strong>{selectedFarmer.landSize}</strong></div>
+            <div><span>Crop Type</span><strong>{selectedFarmer.cropType}</strong></div>
+            <div><span>Fertilizer Type</span><strong>{selectedFarmer.fertilizerType}</strong></div>
+            <div><span>Total Received</span><strong>{selectedFarmer.totalReceived}</strong></div>
+            <div><span>Monthly Limit</span><strong>{selectedFarmer.monthlyLimit}</strong></div>
+            <div><span>Fertilizers Needed</span><strong>{selectedFarmer.fertilizersNeeded}</strong></div>
+          </div>
+          <div className="farmer-detail-reason">
+            <span>Reason</span>
+            <p>{selectedFarmer.reason}</p>
+          </div>
+        </section>
+
+        <section className="farmer-transactions-panel">
+          <div className="farmer-transactions-panel__header">
+            <h3>Transactions</h3>
+            <p>Recent fertilizer transactions for this farmer.</p>
+          </div>
+          <DataTable
+            columns={['Date Time', 'Dealer', 'Fertilizer Name', 'Batch Number', 'Bag ID', 'KG']}
+            rows={selectedFarmer.transactions}
+          />
+        </section>
+      </section>
+    );
+  }
 
   return (
     <section className="page-content">
@@ -936,50 +1042,35 @@ function FarmerRecordsPage() {
         <button type="button" className="filter-button">Filters</button>
       </div>
       <div className="metric-grid">
-        <MetricCard icon="user" label="Total Farmers" value="8,752" accent="teal" />
+        <MetricCard icon="user" label="Total Farmers" value={farmerMetrics.totalFarmers.toLocaleString('en-IN')} accent="teal" />
         <MetricCard icon="document" label="Total Transactions" value="18,540" accent="blue" />
-        <MetricCard icon="warning" label="Active Farmers" value="7,210" accent="orange" />
+        <MetricCard icon="warning" label="Active Farmers" value={farmerMetrics.activeFarmers.toLocaleString('en-IN')} accent="orange" />
       </div>
-      {selectedFarmer && (
-        <section className="farmer-detail-card" ref={detailCardRef} aria-live="polite">
-          <div className="farmer-detail-card__header">
-            <div>
-              <p>Farmer Details</p>
-              <h3>{selectedFarmer.name}</h3>
-            </div>
-            <span className={`risk-pill risk-${selectedFarmer.riskLevel.toLowerCase()}`}>{selectedFarmer.riskLevel} Risk</span>
-          </div>
-          <div className="farmer-detail-grid">
-            <div><span>Land Size</span><strong>{selectedFarmer.landSize}</strong></div>
-            <div><span>Crop Type</span><strong>{selectedFarmer.cropType}</strong></div>
-            <div><span>Fertilizer Type</span><strong>{selectedFarmer.fertilizerType}</strong></div>
-            <div><span>Monthly Limit</span><strong>{selectedFarmer.monthlyLimit}</strong></div>
-          </div>
-          <div className="farmer-detail-reason">
-            <span>Reason</span>
-            <p>{selectedFarmer.reason}</p>
-          </div>
-        </section>
-      )}
       <DataTable
         columns={['Aadhar Card ID', 'Farmer Name', 'District', 'Last Transaction', 'Fertilizer Received', 'Total Received', 'Status', 'Action']}
         rows={filteredFarmerRows.map((row) => [...row, 'View Details'])}
         footer={`Showing ${filteredFarmerRows.length} of 20 records`}
         onAction={(row) => {
-          const detail = farmerDetailsByAadhar[row[0]] || {
+          const detail = {
+            ...(farmerDetailsByAadhar[row[0]] || {
+              landSize: '2 acres',
+              cropType: 'Wheat',
+              monthlyLimit: row[5],
+              riskLevel: row[6] === 'Active' ? 'Low' : 'Medium',
+              reason: 'Hardcoded demo details for this farmer record.',
+            }),
+            aadharCardId: row[0],
             name: row[1],
-            landSize: '2 acres',
-            cropType: 'Wheat',
+            district: row[2],
+            lastTransaction: row[3],
             fertilizerType: row[4],
-            monthlyLimit: row[5],
-            riskLevel: row[6] === 'Active' ? 'Low' : 'Medium',
-            reason: 'Hardcoded demo details for this farmer record.',
+            totalReceived: row[5],
+            status: row[6],
+            fertilizersNeeded: 'Not set',
           };
 
+          detail.transactions = getFarmerTransactions(row[0], row[3], row[4], row[5]);
           setSelectedFarmer(detail);
-          setTimeout(() => {
-            detailCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }, 0);
         }}
       />
     </section>
@@ -1135,6 +1226,28 @@ function ScannerPage() {
     }
   }
 
+  async function scanFileWithNativeDetector(file) {
+    if (!window.BarcodeDetector || !window.createImageBitmap) {
+      throw new Error('Native QR detector is not available in this browser.');
+    }
+
+    const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+    const imageBitmap = await window.createImageBitmap(file);
+
+    try {
+      const codes = await detector.detect(imageBitmap);
+      const qrCode = codes.find((code) => code.rawValue);
+
+      if (!qrCode) {
+        throw new Error('No QR code could be read from this image.');
+      }
+
+      return qrCode.rawValue;
+    } finally {
+      imageBitmap.close?.();
+    }
+  }
+
   async function handleFileScan(event) {
     const [file] = event.target.files || [];
     if (!file) return;
@@ -1149,7 +1262,15 @@ function ScannerPage() {
         await stopScanner();
       }
 
-      const decodedText = await scanner.scanFile(file, true);
+      let decodedText;
+
+      try {
+        decodedText = await scanner.scanFile(file, true);
+      } catch (scanFileError) {
+        scanner.clear();
+        decodedText = await scanFileWithNativeDetector(file);
+      }
+
       await handleScanSuccess(decodedText);
     } catch (error) {
       setScanStatus('No QR found');
