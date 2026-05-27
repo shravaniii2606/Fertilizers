@@ -1,5 +1,7 @@
+﻿import { Html5Qrcode } from 'html5-qrcode';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
+import mockFarmerRecords from './mockFarmerRecords';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
@@ -10,49 +12,7 @@ const navItems = [
   { id: 'analysis', label: 'AI Analysis', icon: 'brain' },
   { id: 'alerts', label: 'Alerts', icon: 'bell' },
   { id: 'farmers', label: 'Farmer Records', icon: 'user' },
-];
-
-const actionCards = [
-  {
-    id: 'add',
-    title: 'Add',
-    description: 'Add new fertilizer distribution records and related details.',
-    action: 'Add New',
-    icon: 'plus',
-    accent: 'green',
-  },
-  {
-    id: 'records',
-    title: 'View Previous',
-    description: 'View and manage previously added distribution records.',
-    action: 'View Records',
-    icon: 'document',
-    accent: 'blue',
-  },
-  {
-    id: 'analysis',
-    title: 'AI Analysis',
-    description: 'Analyze distribution patterns and detect irregularities using AI.',
-    action: 'View Analysis',
-    icon: 'brain',
-    accent: 'purple',
-  },
-  {
-    id: 'alerts',
-    title: 'Alerts',
-    description: 'View alerts and suspicious activities requiring attention.',
-    action: 'View Alerts',
-    icon: 'bell',
-    accent: 'orange',
-  },
-  {
-    id: 'farmers',
-    title: 'Farmer Records',
-    description: 'View and manage farmer details and transaction history.',
-    action: 'View Records',
-    icon: 'user',
-    accent: 'teal',
-  },
+  { id: 'scanner', label: 'Scanner', icon: 'scan' },
 ];
 
 const statCards = [
@@ -115,6 +75,10 @@ const detailContent = {
     title: 'Farmer Records',
     body: 'Open farmer profiles, inspect transaction history, and validate fertilizer allocation across regions.',
   },
+  scanner: {
+    title: 'Scanner',
+    body: 'Scan QR codes from the camera or from an uploaded image.',
+  },
   distribution: {
     title: 'Total Distribution',
     body: 'This section highlights overall fertilizer movement in bags across the monitored reporting period.',
@@ -137,17 +101,6 @@ const detailContent = {
   },
 };
 
-const farmerRows = [
-  ['FRM10001', 'Ramesh Kumar', 'Sehore', '20 May 2025', 'Urea', '500 kg', 'Active'],
-  ['FRM10002', 'Sita Devi', 'Vidisha', '19 May 2025', 'DAP', '300 kg', 'Active'],
-  ['FRM10003', 'Mohan Lal', 'Raisen', '18 May 2025', 'Urea', '500 kg', 'Active'],
-  ['FRM10004', 'Shyam Singh', 'Hoshangabad', '17 May 2025', 'NPK 20:20:0:13', '250 kg', 'Inactive'],
-  ['FRM10005', 'Kamla Bai', 'Sehore', '15 May 2025', 'DAP', '300 kg', 'Active'],
-  ['FRM10006', 'Vijay Patel', 'Vidisha', '14 May 2025', 'Urea', '500 kg', 'Active'],
-  ['FRM10007', 'Radha Shankar', 'Raisen', '13 May 2025', 'NPK 20:20:0:13', '250 kg', 'Inactive'],
-  ['FRM10008', 'Gopal Das', 'Hoshangabad', '12 May 2025', 'Urea', '500 kg', 'Active'],
-];
-
 const alertRows = [
   ['ALT9001', 'Duplicate purchase attempt', 'Sehore', 'High', 'Open'],
   ['ALT9002', 'Dealer stock mismatch', 'Vidisha', 'Medium', 'Reviewing'],
@@ -155,35 +108,70 @@ const alertRows = [
   ['ALT9004', 'Late transaction sync', 'Hoshangabad', 'Low', 'Resolved'],
 ];
 
-const farmerDetailsByAadhar = {
-  FRM10001: {
-    name: 'Ramesh Kumar',
-    landSize: '4.5 acres',
-    cropType: 'Wheat',
-    fertilizerType: 'Urea',
-    monthlyLimit: '500 kg',
-    riskLevel: 'Low',
-    reason: 'Purchase pattern is consistent with land size and recent sowing activity.',
-  },
-  FRM10002: {
-    name: 'Sita Devi',
-    landSize: '3 acres',
-    cropType: 'Soybean',
-    fertilizerType: 'DAP',
-    monthlyLimit: '300 kg',
-    riskLevel: 'Low',
-    reason: 'Recent transactions are within the approved allocation for the district.',
-  },
-  FRM10004: {
-    name: 'Shyam Singh',
-    landSize: '2.5 acres',
-    cropType: 'Paddy',
-    fertilizerType: 'NPK 20:20:0:13',
-    monthlyLimit: '250 kg',
-    riskLevel: 'Medium',
-    reason: 'Account is inactive and needs local verification before the next allotment.',
-  },
+const cropFertilizerRules = {
+  wheat: ['urea', 'dap'],
+  soybean: ['dap', 'npk 20:20:0:13'],
+  paddy: ['urea', 'npk 20:20:0:13'],
 };
+
+function runRuleEngine(record) {
+  let riskScore = 0;
+  const triggeredRules = [];
+
+  if (record.purchases > 5) {
+    riskScore += 25;
+    triggeredRules.push('High purchase frequency');
+  }
+
+  if (record.fertilizerPurchasedKg > record.districtAverageKg * 2) {
+    riskScore += 30;
+    triggeredRules.push('Unusual quantity');
+  }
+
+  if (record.dealersUsed > 2) {
+    riskScore += 15;
+    triggeredRules.push('Multiple dealer purchases');
+  }
+
+  const cropKey = String(record.cropType || '').toLowerCase();
+  const fertilizerKey = String(record.fertilizerType || '').toLowerCase();
+  if (cropFertilizerRules[cropKey] && !cropFertilizerRules[cropKey].includes(fertilizerKey)) {
+    riskScore += 20;
+    triggeredRules.push('Crop-fertilizer mismatch');
+  }
+
+  if (record.previous30DayAvgKg > 0 && record.fertilizerPurchasedKg > record.previous30DayAvgKg * 1.8) {
+    riskScore += 20;
+    triggeredRules.push('Sudden purchase spike');
+  }
+
+  const boundedRisk = Math.max(0, Math.min(100, riskScore));
+  const severity = boundedRisk >= 70 ? 'High' : boundedRisk >= 40 ? 'Medium' : 'Low';
+
+  return {
+    riskScore: boundedRisk,
+    severity,
+    suspicious: boundedRisk >= 40,
+    triggeredRules,
+    recommendationTags: triggeredRules.length > 0 ? ['Field Verification', 'Dealer Cross-check'] : ['Routine Monitoring'],
+    alerts: triggeredRules.map((rule) => ({
+      rule,
+      severity,
+      message: `${record.name} triggered: ${rule}`,
+    })),
+  };
+}
+
+function buildFarmerAnalysisRecords() {
+  return mockFarmerRecords.map((record) => {
+    const ruleResult = runRuleEngine(record);
+    return {
+      ...record,
+      ...ruleResult,
+      aiInsight: `${record.name} purchase behavior is ${(record.fertilizerPurchasedKg / record.districtAverageKg).toFixed(1)}x district average in ${record.district}.`,
+    };
+  });
+}
 
 function Icon({ type }) {
   const common = { width: 34, height: 34, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '1.8', strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true };
@@ -238,6 +226,17 @@ function Icon({ type }) {
         <svg {...common}>
           <circle cx="12" cy="8" r="3.2" />
           <path d="M5 19a7 7 0 0 1 14 0" />
+        </svg>
+      );
+    case 'scan':
+      return (
+        <svg {...common}>
+          <path d="M4 8V5a1 1 0 0 1 1-1h3" />
+          <path d="M16 4h3a1 1 0 0 1 1 1v3" />
+          <path d="M20 16v3a1 1 0 0 1-1 1h-3" />
+          <path d="M8 20H5a1 1 0 0 1-1-1v-3" />
+          <path d="M7 12h10" />
+          <path d="M9 9h6v6H9z" />
         </svg>
       );
     case 'bag':
@@ -303,26 +302,6 @@ function DashboardPage({ activeSection, setActiveSection }) {
         <p>Welcome, Admin</p>
       </section>
 
-      <section className="cards-grid" aria-label="Primary dashboard actions">
-        {actionCards.map((card) => (
-          <button
-            key={card.id}
-            type="button"
-            className={`action-card accent-${card.accent} ${activeSection === card.id ? 'is-selected' : ''}`}
-            onClick={() => setActiveSection(card.id)}
-          >
-            <span className="action-card__icon-wrap">
-              <span className="action-card__icon">
-                <Icon type={card.icon} />
-              </span>
-            </span>
-            <span className="action-card__title">{card.title}</span>
-            <span className="action-card__description">{card.description}</span>
-            <span className="action-card__cta">{card.action}</span>
-          </button>
-        ))}
-      </section>
-
       <section className="stats-panel">
         {statCards.map((stat) => (
           <button
@@ -384,6 +363,7 @@ function AddPage() {
   const [generatedBagIds, setGeneratedBagIds] = useState([]);
   const [generatedQRCodes, setGeneratedQRCodes] = useState([]);
   const [saveState, setSaveState] = useState({ status: 'idle', message: '' });
+  const [expiryError, setExpiryError] = useState('');
   const [batchForm, setBatchForm] = useState({
     batchNumber: '',
     numberOfBags: '',
@@ -393,6 +373,8 @@ function AddPage() {
     manufacturer: '',
     bagWeight: '',
   });
+  const now = new Date();
+  const todayIsoDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
   const handleInputChange = (event) => {
     const { name, value } = event.target;
@@ -405,6 +387,14 @@ function AddPage() {
       setGeneratedQRCodes([]);
     }
 
+    if (name === 'productExpiry') {
+      if (value && value < todayIsoDate) {
+        setExpiryError('Expiry date cannot be in the past.');
+      } else {
+        setExpiryError('');
+      }
+    }
+
     setBatchForm((currentForm) => ({
       ...currentForm,
       [name]: value,
@@ -413,6 +403,13 @@ function AddPage() {
 
   const handleGenerateBagIds = async () => {
     const bagCount = Number.parseInt(batchForm.numberOfBags, 10);
+    const hasPastExpiry = batchForm.productExpiry && batchForm.productExpiry < todayIsoDate;
+
+    if (hasPastExpiry) {
+      setExpiryError('Expiry date cannot be in the past.');
+      setSaveState({ status: 'error', message: 'Expiry date cannot be in the past.' });
+      return;
+    }
 
     if (!Number.isInteger(bagCount) || bagCount <= 0) {
       setGeneratedBagIds([]);
@@ -571,9 +568,11 @@ function AddPage() {
           <input
             name="productExpiry"
             type="date"
+            min={todayIsoDate}
             value={batchForm.productExpiry}
             onChange={handleInputChange}
           />
+          {expiryError && <span className="form-hint form-hint--error">{expiryError}</span>}
         </label>
         <label>
           Manufacturer
@@ -633,6 +632,7 @@ function AddPage() {
               <article key={qrCode.bagId} className="generated-bag-card qr-card">
                 <img src={qrCode.qrCodeDataUrl} alt={`QR for ${qrCode.bagId}`} className="qr-image" />
                 <strong>{qrCode.bagId}</strong>
+                <small>Status: {qrCode.status || 'not sent'}</small>
                 <a href={qrCode.qrCodeDataUrl} download={`${qrCode.bagId}.png`} className="table-action qr-download">
                   Download QR
                 </a>
@@ -709,7 +709,7 @@ function PreviousPage() {
 
         const loadedBatches = result.batches || [];
         setBatches(loadedBatches);
-        setSelectedBatch(loadedBatches[0] || null);
+        setSelectedBatch(null);
         setHistoryState({
           status: 'success',
           message: loadedBatches.length ? '' : 'No batches have been created yet.',
@@ -750,438 +750,327 @@ function PreviousPage() {
         </p>
       )}
       {historyState.status === 'success' && batches.length > 0 && (
-        <div className="history-layout">
-          <DataTable
-            columns={['Batch Number', 'Product Name', 'No of Bags', 'Manufacturer', 'Expiry', 'Created On', 'Action']}
-            rows={batchRows}
-            onAction={(row) => {
-              const selectedRowBatchNumber = row[0];
-              setSelectedBatch(
-                batches.find((batch) => batch.batch_number === selectedRowBatchNumber) || null
-              );
-            }}
-          />
-          {selectedBatch && (
-            <section className="batch-detail-panel">
-              <div className="batch-detail-panel__header">
-                <h3>{selectedBatch.batch_number}</h3>
+        <DataTable
+          columns={['Batch Number', 'Product Name', 'No of Bags', 'Manufacturer', 'Expiry', 'Created On', 'Action']}
+          rows={batchRows}
+          onAction={(row) => {
+            const selectedRowBatchNumber = row[0];
+            setSelectedBatch(
+              batches.find((batch) => batch.batch_number === selectedRowBatchNumber) || null
+            );
+          }}
+        />
+      )}
+      {selectedBatch && (
+        <div className="details-modal-backdrop" role="presentation" onClick={() => setSelectedBatch(null)}>
+          <section
+            className="details-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="batch-details-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="details-modal__header">
+              <div>
+                <h3 id="batch-details-title">{selectedBatch.batch_number}</h3>
                 <p>Batch details, bag IDs, and saved QR codes.</p>
               </div>
-              <div className="batch-detail-grid">
-                <div><span>Product Name</span><strong>{selectedBatch.product_name || 'Not set'}</strong></div>
-                <div><span>No of Bags</span><strong>{selectedBatch.number_of_bags}</strong></div>
-                <div><span>Product Price</span><strong>{selectedBatch.product_price || 'Not set'}</strong></div>
-                <div><span>Product Expiry</span><strong>{formatDate(selectedBatch.product_expiry)}</strong></div>
-                <div><span>Manufacturer</span><strong>{selectedBatch.manufacturer || 'Not set'}</strong></div>
-                <div><span>Weight of Each Bag</span><strong>{selectedBatch.bag_weight || 'Not set'}</strong></div>
-                <div><span>Created On</span><strong>{formatDate(selectedBatch.created_at)}</strong></div>
-              </div>
+              <button type="button" className="outline-action" onClick={() => setSelectedBatch(null)}>Close</button>
+            </div>
 
+            <div className="batch-detail-grid">
+              <div><span>Product Name</span><strong>{selectedBatch.product_name || 'Not set'}</strong></div>
+              <div><span>No of Bags</span><strong>{selectedBatch.number_of_bags}</strong></div>
+              <div><span>Product Price</span><strong>{selectedBatch.product_price || 'Not set'}</strong></div>
+              <div><span>Product Expiry</span><strong>{formatDate(selectedBatch.product_expiry)}</strong></div>
+              <div><span>Manufacturer</span><strong>{selectedBatch.manufacturer || 'Not set'}</strong></div>
+              <div><span>Weight of Each Bag</span><strong>{selectedBatch.bag_weight || 'Not set'}</strong></div>
+              <div><span>Created On</span><strong>{formatDate(selectedBatch.created_at)}</strong></div>
+            </div>
+
+            <div className="batch-subsection">
+              <h4>Bag IDs</h4>
+              <div className="detail-chip-grid">
+                {(selectedBatch.bag_ids || []).map((bagId) => {
+                  const qrStatus = selectedBatch.qr_codes?.find((qrCode) => qrCode?.bagId === bagId)?.status;
+
+                  return (
+                    <span key={bagId} className="detail-chip">
+                      {bagId}
+                      <small>{qrStatus || 'not sent'}</small>
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+
+            {!!selectedBatch.qr_codes?.length && (
               <div className="batch-subsection">
-                <h4>Bag IDs</h4>
-                <div className="detail-chip-grid">
-                  {(selectedBatch.bag_ids || []).map((bagId) => (
-                    <span key={bagId} className="detail-chip">{bagId}</span>
+                <h4>Saved QR Codes</h4>
+                <div className="generated-bag-grid qr-grid">
+                  {selectedBatch.qr_codes.map((qrCode) => (
+                    <article key={qrCode.bagId} className="generated-bag-card qr-card">
+                      <img src={qrCode.qrCodeDataUrl} alt={`QR for ${qrCode.bagId}`} className="qr-image" />
+                      <strong>{qrCode.bagId}</strong>
+                      <small>Status: {qrCode.status || 'not sent'}</small>
+                      <a href={qrCode.qrCodeDataUrl} download={`${qrCode.bagId}.png`} className="table-action qr-download">
+                        Download QR
+                      </a>
+                    </article>
                   ))}
                 </div>
               </div>
-
-              {!!selectedBatch.qr_codes?.length && (
-                <div className="batch-subsection">
-                  <h4>Saved QR Codes</h4>
-                  <div className="generated-bag-grid qr-grid">
-                    {selectedBatch.qr_codes.map((qrCode) => (
-                      <article key={qrCode.bagId} className="generated-bag-card qr-card">
-                        <img src={qrCode.qrCodeDataUrl} alt={`QR for ${qrCode.bagId}`} className="qr-image" />
-                        <strong>{qrCode.bagId}</strong>
-                        <a href={qrCode.qrCodeDataUrl} download={`${qrCode.bagId}.png`} className="table-action qr-download">
-                          Download QR
-                        </a>
-                      </article>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </section>
-          )}
+            )}
+          </section>
         </div>
       )}
     </section>
   );
 }
 
-function getFarmerDetail(row) {
-  return farmerDetailsByAadhar[row[0]] || {
-    name: row[1],
-    landSize: '2 acres',
-    cropType: 'Wheat',
-    fertilizerType: row[4],
-    monthlyLimit: row[5],
-    riskLevel: row[6] === 'Active' ? 'Low' : 'Medium',
-    reason: row[6] === 'Active' ? 'Normal purchase activity.' : 'Inactive record requires follow-up.',
-  };
-}
-
-function getRiskScore(detail, row) {
-  const limit = Number.parseFloat(detail.monthlyLimit) || Number.parseFloat(row[5]) || 0;
-  const riskBase = { High: 78, Medium: 56, Low: 24 }[detail.riskLevel] || 35;
-  const landSize = Number.parseFloat(detail.landSize) || 1;
-  const fertilizerFactor = detail.fertilizerType === 'Potash' ? 7 : detail.fertilizerType === 'DAP' ? 5 : 2;
-  const activityFactor = row[6] === 'Inactive' ? 8 : 0;
-
-  return Math.min(96, Math.round(riskBase + limit * 0.9 + fertilizerFactor + activityFactor - landSize * 0.6));
-}
-
-function buildAnalysisRecords() {
-  return farmerRows.map((row) => {
-    const detail = getFarmerDetail(row);
-    const riskScore = getRiskScore(detail, row);
-
-    return {
-      aadhar: row[0],
-      name: row[1],
-      district: row[2],
-      lastTransaction: row[3],
-      fertilizer: row[4],
-      totalReceived: row[5],
-      status: row[6],
-      ...detail,
-      riskScore,
-    };
-  });
-}
-
-function getChatResponse(question, records, suspiciousFarmers, highRisk, topFertilizer) {
-  const normalizedQuestion = question.toLowerCase();
-  const mentionedFarmer = records.find((record) => normalizedQuestion.includes(record.name.toLowerCase()));
-  const mentionedAadhar = records.find((record) => normalizedQuestion.includes(record.aadhar.replace(/\s/g, '')));
-  const farmer = mentionedFarmer || mentionedAadhar;
-
-  if (farmer) {
-    return `${farmer.name} has a risk score of ${farmer.riskScore}. Risk level is ${farmer.riskLevel}. Reason: ${farmer.reason} Land size is ${farmer.landSize}, crop is ${farmer.cropType}, fertilizer is ${farmer.fertilizerType}, and monthly limit is ${farmer.monthlyLimit}.`;
-  }
-
-  if (normalizedQuestion.includes('high risk') || normalizedQuestion.includes('risk')) {
-    return `${highRisk.length} farmers are high risk. The highest risk farmer is ${suspiciousFarmers[0]?.name || 'not available'} with score ${suspiciousFarmers[0]?.riskScore || 0}. The main reasons are exceeded monthly limits, high purchase frequency, and inactive records.`;
-  }
-
-  if (normalizedQuestion.includes('fertilizer') || normalizedQuestion.includes('common')) {
-    return `${topFertilizer?.[0] || 'Urea'} is currently the most common fertilizer in farmer records, appearing in ${topFertilizer?.[1] || 0} out of ${records.length} records.`;
-  }
-
-  if (normalizedQuestion.includes('inactive') || normalizedQuestion.includes('active')) {
-    const inactiveCount = records.filter((record) => record.status === 'Inactive').length;
-    return `${inactiveCount} farmer records are inactive. These records are treated as follow-up signals because inactive status can indicate pending verification or irregular purchase behavior.`;
-  }
-
-  if (normalizedQuestion.includes('recommend')) {
-    return `Recommended action: review ${suspiciousFarmers.length} suspicious farmers first, prioritize ${highRisk.length} high-risk cases, and verify fertilizer purchases where monthly limits are exceeded.`;
-  }
-
-  return `I analyzed ${records.length} farmer records. Ask about a farmer name, Aadhaar number, high-risk farmers, fertilizer patterns, inactive records, or recommendations.`;
-}
-
 function AnalysisPage() {
+  const [records, setRecords] = useState([]);
+  const [state, setState] = useState({ status: 'loading', message: 'Loading farmer records...' });
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedDistrict, setSelectedDistrict] = useState('All Districts');
+  const [selectedSeverity, setSelectedSeverity] = useState('All Severity');
   const [activeTab, setActiveTab] = useState('overview');
-  const [analysisSearch, setAnalysisSearch] = useState('');
-  const [selectedDateRange, setSelectedDateRange] = useState('20 May 2025 - 27 May 2025');
-  const [selectedDistrict, setSelectedDistrict] = useState('Sehore');
   const [selectedReview, setSelectedReview] = useState(null);
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState([
-    {
-      type: 'answer',
-      text: 'Ask me about a farmer name, Aadhaar number, high-risk farmers, fertilizer patterns, inactive records, or recommendations.',
-    },
+    { type: 'answer', text: 'Ask about flagged farmers, triggered rules, high risk list, or specific farmer IDs.' },
   ]);
-  const analysisRecords = useMemo(() => buildAnalysisRecords(), []);
-  const filteredAnalysisRecords = useMemo(() => {
-    const normalizedSearch = analysisSearch.trim().toLowerCase();
 
-    return analysisRecords.filter((record) => {
-      const compactAadhar = record.aadhar.replace(/\s/g, '');
-      const searchableText = `${record.aadhar} ${compactAadhar} ${record.name} ${record.fertilizer} ${record.riskLevel}`.toLowerCase();
-      const matchesSearch = !normalizedSearch || searchableText.includes(normalizedSearch) || searchableText.replace(/\s/g, '').includes(normalizedSearch.replace(/\s/g, ''));
+  useEffect(() => {
+    setState({ status: 'loading', message: 'Loading farmer records...' });
+    const timer = setTimeout(() => {
+      const loaded = buildFarmerAnalysisRecords();
+      setRecords(loaded);
+      setState({ status: 'success', message: loaded.length ? '' : 'No farmer records found.' });
+    }, 150);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const districts = useMemo(
+    () => ['All Districts', ...Array.from(new Set(records.map((record) => record.district).filter(Boolean)))],
+    [records]
+  );
+
+  const filteredRecords = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+    return records.filter((record) => {
+      const haystack = `${record.id} ${record.name} ${record.district} ${record.cropType} ${record.fertilizerType}`.toLowerCase();
+      const matchesSearch = !normalizedSearch || haystack.includes(normalizedSearch);
       const matchesDistrict = selectedDistrict === 'All Districts' || record.district === selectedDistrict;
-
-      return matchesSearch && matchesDistrict;
+      const matchesSeverity = selectedSeverity === 'All Severity' || record.severity === selectedSeverity;
+      return matchesSearch && matchesDistrict && matchesSeverity;
     });
-  }, [analysisRecords, analysisSearch, selectedDistrict]);
-  const suspiciousFarmers = filteredAnalysisRecords
-    .filter((record) => record.riskScore >= 55)
-    .sort((a, b) => b.riskScore - a.riskScore);
-  const highRisk = filteredAnalysisRecords.filter((record) => record.riskLevel === 'High');
-  const mediumRisk = filteredAnalysisRecords.filter((record) => record.riskLevel === 'Medium');
-  const lowRisk = filteredAnalysisRecords.filter((record) => record.riskLevel === 'Low');
-  const inactiveFarmers = filteredAnalysisRecords.filter((record) => record.status === 'Inactive');
-  const fertilizerCounts = filteredAnalysisRecords.reduce((counts, record) => {
-    counts[record.fertilizer] = (counts[record.fertilizer] || 0) + 1;
-    return counts;
-  }, {});
-  const topFertilizer = Object.entries(fertilizerCounts).sort((a, b) => b[1] - a[1])[0];
-  const aiConfidence = filteredAnalysisRecords.length ? Math.round(((filteredAnalysisRecords.length - inactiveFarmers.length) / filteredAnalysisRecords.length) * 100) : 0;
-  const riskRows = [
-    ['High Risk', highRisk.length, `${filteredAnalysisRecords.length ? Math.round((highRisk.length / filteredAnalysisRecords.length) * 100) : 0}%`, 'High purchase frequency or exceeded limit'],
-    ['Medium Risk', mediumRisk.length, `${filteredAnalysisRecords.length ? Math.round((mediumRisk.length / filteredAnalysisRecords.length) * 100) : 0}%`, 'Frequent purchase pattern needs review'],
-    ['Low Risk', lowRisk.length, `${filteredAnalysisRecords.length ? Math.round((lowRisk.length / filteredAnalysisRecords.length) * 100) : 0}%`, 'Normal land-size and purchase behavior'],
-  ];
-  const anomalyRows = suspiciousFarmers.slice(0, 5).map((record) => [
-    record.riskLevel === 'High' ? 'Limit Anomaly' : 'Pattern Anomaly',
-    record.reason,
-    record.name,
-    record.district,
-    record.lastTransaction,
-    record.riskLevel,
-  ]);
+  }, [records, searchTerm, selectedDistrict, selectedSeverity]);
+
+  const suspiciousFarmers = useMemo(
+    () => [...filteredRecords].filter((record) => record.suspicious).sort((a, b) => b.riskScore - a.riskScore),
+    [filteredRecords]
+  );
+  const highRiskCount = filteredRecords.filter((record) => record.severity === 'High').length;
+  const mediumRiskCount = filteredRecords.filter((record) => record.severity === 'Medium').length;
+  const lowRiskCount = filteredRecords.filter((record) => record.severity === 'Low').length;
+  const triggerCount = filteredRecords.reduce((sum, record) => sum + record.triggeredRules.length, 0);
+  const suspiciousDealerCount = new Set(suspiciousFarmers.filter((record) => record.dealersUsed > 2).map((record) => `${record.district}-${record.dealersUsed}`)).size;
+  const ruleTriggerRows = suspiciousFarmers.flatMap((record) => record.triggeredRules.map((rule) => [record.id, record.name, rule, record.severity]));
+  const recentAlerts = suspiciousFarmers.slice(0, 5).flatMap((record) => record.alerts.map((alert) => [alert.rule, alert.message, record.district, alert.severity])).slice(0, 8);
+  const aiInsightFeed = suspiciousFarmers.slice(0, 5).map((record) => `${record.aiInsight} Triggered: ${record.triggeredRules.join(', ')}.`);
+
   const tabs = [
     ['overview', 'Overview'],
-    ['risk', 'Risk & Anomaly Detection'],
-    ['behavior', 'Behavior Patterns'],
+    ['risk', 'Rule Engine Risk Detection'],
+    ['behavior', 'Rule-Based Risk Triggers'],
     ['recommendations', 'Recommendations'],
     ['chatbot', 'AI Chatbot'],
   ];
 
   const handleChatSubmit = (event) => {
     event.preventDefault();
-    const trimmedMessage = chatInput.trim();
+    const question = chatInput.trim();
+    if (!question) return;
 
-    if (!trimmedMessage) {
-      return;
+    const normalizedQuestion = question.toLowerCase();
+    let answer = `Rule Engine analyzed ${filteredRecords.length} farmer records. AI explains these outputs only.`;
+    const mentioned = records.find((record) => normalizedQuestion.includes(record.id.toLowerCase()) || normalizedQuestion.includes(record.name.toLowerCase()));
+
+    if (mentioned) {
+      answer = `${mentioned.name} (${mentioned.id}) has Rule Risk Score ${mentioned.riskScore} (${mentioned.severity}) due to: ${mentioned.triggeredRules.join(', ') || 'No rule triggered'}. AI Insight: ${mentioned.aiInsight}`;
+    } else if (normalizedQuestion.includes('high risk')) {
+      answer = `High risk farmers: ${suspiciousFarmers.filter((record) => record.severity === 'High').map((record) => `${record.name} (${record.id})`).join(', ') || 'None in current filters'}.`;
+    } else if (normalizedQuestion.includes('multiple dealer')) {
+      answer = `Farmers with multiple dealer purchases: ${suspiciousFarmers.filter((record) => record.triggeredRules.includes('Multiple dealer purchases')).map((record) => `${record.name} (${record.id})`).join(', ') || 'None'}.`;
+    } else if (normalizedQuestion.includes('triggered rules')) {
+      answer = `Triggered rule count is ${triggerCount}. Top triggered rules: ${ruleTriggerRows.slice(0, 5).map((row) => row[2]).join(', ') || 'None'}.`;
     }
 
-    setChatMessages((messages) => [
-      ...messages,
-      { type: 'question', text: trimmedMessage },
-      { type: 'answer', text: getChatResponse(trimmedMessage, filteredAnalysisRecords, suspiciousFarmers, highRisk, topFertilizer) },
-    ]);
+    setChatMessages((current) => [...current, { type: 'question', text: question }, { type: 'answer', text: answer }]);
     setChatInput('');
   };
 
   return (
     <section className="page-content ai-page">
       <div className="ai-page-title">
-        <PageTitle title="AI Analysis" subtitle="Rule-based insights calculated from Farmer Records." />
+        <PageTitle title="AI Analysis" subtitle="AI-powered insights and rule-based risk scoring from live Farmer Records." />
         <div className="ai-controls">
           <input
             type="search"
-            value={analysisSearch}
-            onChange={(event) => setAnalysisSearch(event.target.value)}
-            placeholder="Search farmer, Aadhaar or risk..."
-            aria-label="Search AI analysis records"
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search farmer, Aadhaar, district, fertilizer..."
+            aria-label="Search analysis records"
           />
-          <select value={selectedDateRange} onChange={(event) => setSelectedDateRange(event.target.value)}>
-            <option>20 May 2025 - 27 May 2025</option>
-            <option>All Dates</option>
-          </select>
           <select value={selectedDistrict} onChange={(event) => setSelectedDistrict(event.target.value)}>
-            <option>All Districts</option>
-            <option>Sehore</option>
+            {districts.map((district) => <option key={district}>{district}</option>)}
+          </select>
+          <select value={selectedSeverity} onChange={(event) => setSelectedSeverity(event.target.value)}>
+            <option>All Severity</option>
+            <option>High</option>
+            <option>Medium</option>
+            <option>Low</option>
           </select>
         </div>
       </div>
 
-      <div className="metric-grid ai-metric-grid">
-        <MetricCard icon="document" label="Records Analyzed" value={filteredAnalysisRecords.length} accent="blue" />
-        <MetricCard icon="warning" label="High Risk Farmers" value={highRisk.length} accent="orange" />
-        <MetricCard icon="user" label="Suspicious Farmers" value={suspiciousFarmers.length} accent="purple" />
-        <MetricCard icon="brain" label="AI Confidence" value={`${aiConfidence}%`} accent="green" />
-      </div>
+      {state.status !== 'success' && (
+        <p className={`form-hint form-hint--${state.status === 'loading' ? 'saving' : 'error'}`}>{state.message}</p>
+      )}
 
-      <div className="ai-tabs" aria-label="AI analysis sections">
-        {tabs.map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            className={activeTab === id ? 'is-active' : ''}
-            onClick={() => setActiveTab(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {state.status === 'success' && (
+        <>
+          <div className="metric-grid ai-metric-grid">
+            <MetricCard icon="document" label="Total Records Analyzed" value={filteredRecords.length} accent="blue" />
+            <MetricCard icon="warning" label="High Risk Farmers" value={highRiskCount} accent="orange" />
+            <MetricCard icon="store" label="Suspicious Dealers" value={suspiciousDealerCount} accent="purple" />
+            <MetricCard icon="brain" label="Rule Trigger Count" value={triggerCount} accent="green" />
+          </div>
 
-      <div className="ai-layout">
-        <div className="ai-main">
-          {selectedReview && (
-            <section className="farmer-detail-card">
-              <div className="farmer-detail-card__header">
-                <div>
-                  <p>Selected Risk Review</p>
-                  <h3>{selectedReview.name}</h3>
-                </div>
-                <span className={`risk-pill risk-${selectedReview.riskLevel.toLowerCase()}`}>{selectedReview.riskScore} Score</span>
-              </div>
-              <div className="farmer-detail-grid">
-                <div><span>Aadhaar</span><strong>{selectedReview.aadhar}</strong></div>
-                <div><span>Land Size</span><strong>{selectedReview.landSize}</strong></div>
-                <div><span>Crop</span><strong>{selectedReview.cropType}</strong></div>
-                <div><span>Monthly Limit</span><strong>{selectedReview.monthlyLimit}</strong></div>
-              </div>
-              <div className="farmer-detail-reason">
-                <span>Risk Reason</span>
-                <p>{selectedReview.reason}</p>
-              </div>
-            </section>
-          )}
+          <div className="ai-tabs" aria-label="AI analysis sections">
+            {tabs.map(([id, label]) => (
+              <button key={id} type="button" className={activeTab === id ? 'is-active' : ''} onClick={() => setActiveTab(id)}>
+                {label}
+              </button>
+            ))}
+          </div>
 
-          {['overview', 'risk'].includes(activeTab) && (
-            <section className="ai-card">
-            <div className="ai-card__header">
-              <div>
-                <h3>Top Suspicious Farmers</h3>
-                <p>Ranked by risk score from farmer records</p>
-              </div>
-            </div>
-            <DataTable
-              compact
-              columns={['Aadhar', 'Farmer Name', 'Risk Score', 'Reason', 'Action']}
-              rows={suspiciousFarmers.slice(0, 6).map((record) => [
-                record.aadhar,
-                record.name,
-                record.riskScore,
-                record.reason,
-                'Review',
-              ])}
-              onAction={(row) => {
-                const record = suspiciousFarmers.find((farmer) => farmer.aadhar === row[0]);
-                setSelectedReview(record);
-              }}
-            />
-          </section>
-          )}
-
-          {['overview', 'risk'].includes(activeTab) && (
-            <section className="ai-card">
-            <div className="ai-card__header">
-              <div>
-                <h3>Recent Anomalies Detected</h3>
-                <p>Built from high and medium farmer risk records</p>
-              </div>
-            </div>
-            <DataTable
-              compact
-              columns={['Type', 'Description', 'Farmer', 'District', 'Detected On', 'Severity']}
-              rows={anomalyRows}
-            />
-          </section>
-          )}
-
-          {activeTab === 'behavior' && (
-            <section className="ai-card">
-              <div className="ai-card__header">
-                <div>
-                  <h3>Behavior Patterns</h3>
-                  <p>Calculated from crop, fertilizer and risk behavior in Farmer Records</p>
-                </div>
-              </div>
-              <div className="ai-insight-list">
-                <article><strong>{topFertilizer?.[0] || 'No fertilizer'} has the highest usage.</strong><span>This indicates where stock planning should focus first.</span></article>
-                <article><strong>{inactiveFarmers.length} farmers are inactive.</strong><span>Inactive farmers are weighted higher because they may need verification.</span></article>
-                <article><strong>{mediumRisk.length + highRisk.length} records have medium or high risk.</strong><span>These are the records that need manual review before approval.</span></article>
-              </div>
-            </section>
-          )}
-
-          {activeTab === 'recommendations' && (
-            <section className="ai-card">
-              <div className="ai-card__header">
-                <div>
-                  <h3>Recommendations</h3>
-                  <p>Generated from the current farmer analysis</p>
-                </div>
-              </div>
-              <div className="ai-insight-list">
-                <article><strong>Review high-risk farmers first.</strong><span>Start with {suspiciousFarmers[0]?.name || 'the top suspicious farmer'} because the score is highest.</span></article>
-                <article><strong>Verify monthly limits.</strong><span>High-risk reasons include exceeded limits and very high purchase frequency.</span></article>
-                <article><strong>Prioritize inactive records.</strong><span>{inactiveFarmers.length} inactive records should be checked before the next distribution cycle.</span></article>
-              </div>
-            </section>
-          )}
-        </div>
-
-        <aside className="ai-side">
-          {['overview', 'behavior', 'recommendations'].includes(activeTab) && (
-            <section className="ai-card">
-            <div className="ai-card__header">
-              <div>
-                <h3>AI Insights</h3>
-                <p>Patterns detected from the current farmer records</p>
-              </div>
-            </div>
-            <div className="ai-insight-list">
-              <article>
-                <strong>{topFertilizer?.[0] || 'Urea'} is the most common fertilizer.</strong>
-                <span>{topFertilizer?.[1] || 0} of {filteredAnalysisRecords.length} records use it.</span>
-              </article>
-              <article>
-                <strong>{suspiciousFarmers.length} farmers need review.</strong>
-                <span>Risk score is 55 or higher based on limit, fertilizer type, status and risk reason.</span>
-              </article>
-              <article>
-                <strong>{inactiveFarmers.length} inactive records found.</strong>
-                <span>Inactive records are treated as follow-up signals in the rule engine.</span>
-              </article>
-              <article>
-                <strong>{highRisk.length} farmers are high risk.</strong>
-                <span>Most high-risk cases are linked to exceeded limits or very high frequency.</span>
-              </article>
-            </div>
-          </section>
-          )}
-
-          {['overview', 'risk'].includes(activeTab) && (
-            <section className="ai-card">
-            <div className="ai-card__header">
-              <div>
-                <h3>Risk Score Distribution</h3>
-                <p>Based on farmer detail risk levels</p>
-              </div>
-            </div>
-            <div className="risk-bars">
-              {riskRows.map(([label, count, percent, note]) => (
-                <div className="risk-bar-row" key={label}>
-                  <div>
-                    <strong>{label}</strong>
-                    <span>{note}</span>
+          <div className="ai-layout">
+            <div className="ai-main">
+              {selectedReview && (
+                <section className="farmer-detail-card">
+                  <div className="farmer-detail-card__header">
+                    <div>
+                      <p>Selected Risk Review</p>
+                      <h3>{selectedReview.name}</h3>
+                    </div>
+                    <span className={`risk-pill risk-${selectedReview.severity.toLowerCase()}`}>Rule Risk Score {selectedReview.riskScore}</span>
                   </div>
-                  <div className="risk-bar-track">
-                    <span style={{ width: percent }} />
+                  <div className="farmer-detail-grid">
+                    <div><span>Farmer ID</span><strong>{selectedReview.id}</strong></div>
+                    <div><span>Land Size</span><strong>{selectedReview.landSize}</strong></div>
+                    <div><span>Crop</span><strong>{selectedReview.cropType}</strong></div>
+                    <div><span>Fertilizer Purchased</span><strong>{selectedReview.fertilizerPurchasedKg} kg</strong></div>
                   </div>
-                  <b>{count} ({percent})</b>
-                </div>
-              ))}
-            </div>
-          </section>
-          )}
+                  <div className="farmer-detail-reason">
+                    <span>Rule Engine Triggers</span>
+                    <p>{selectedReview.triggeredRules.join(', ') || 'No trigger'}</p>
+                  </div>
+                </section>
+              )}
 
-          {['overview', 'chatbot'].includes(activeTab) && (
-            <section className="ai-card ai-chat">
-            <div className="ai-card__header">
-              <div>
-                <h3>AI Assistant</h3>
-                <p>Generated from farmer record analysis</p>
-              </div>
+              {['overview', 'risk'].includes(activeTab) && (
+                <section className="ai-card">
+                  <div className="ai-card__header">
+                    <div>
+                      <h3>Top Suspicious Farmers</h3>
+                      <p>Generated by Rule Engine from Farmer Records</p>
+                    </div>
+                  </div>
+                  <DataTable
+                    columns={['Farmer ID', 'Farmer Name', 'District', 'Rule Risk Score', 'Trigger (Top)', 'Action']}
+                    rows={suspiciousFarmers.map((record) => [record.id, record.name, record.district, record.riskScore, record.triggeredRules[0] || 'None', 'View Details'])}
+                    onAction={(row) => {
+                      const record = suspiciousFarmers.find((farmer) => farmer.id === row[0]);
+                      setSelectedReview(record || null);
+                    }}
+                  />
+                </section>
+              )}
+
+              {['overview', 'risk'].includes(activeTab) && (
+                <section className="ai-card">
+                  <div className="ai-card__header">
+                    <div>
+                      <h3>Rule Trigger Table</h3>
+                      <p>Rule Engine trigger outputs by farmer</p>
+                    </div>
+                  </div>
+                  <DataTable columns={['Farmer ID', 'Farmer Name', 'Rule Trigger', 'Severity']} rows={ruleTriggerRows} />
+                </section>
+              )}
+
+              {activeTab === 'behavior' && (
+                <section className="ai-card">
+                  <div className="ai-card__header">
+                    <div>
+                      <h3>Recent Alerts</h3>
+                      <p>Latest anomaly alerts from Rule Engine</p>
+                    </div>
+                  </div>
+                  <DataTable columns={['Type', 'Description', 'District', 'Severity']} rows={recentAlerts} />
+                </section>
+              )}
+
+              {activeTab === 'recommendations' && (
+                <section className="ai-card">
+                  <div className="ai-card__header">
+                    <div>
+                      <h3>AI Insight Feed</h3>
+                      <p>AI explanations based on Rule Engine outputs</p>
+                    </div>
+                  </div>
+                  <div className="ai-insight-list">
+                    {aiInsightFeed.map((insight) => (
+                      <article key={insight}><strong>AI Explanation</strong><span>{insight}</span></article>
+                    ))}
+                  </div>
+                </section>
+              )}
             </div>
-            <div className="chat-messages">
-              {chatMessages.map((message, index) => (
-                <div key={`${message.type}-${index}`} className={`chat-bubble chat-bubble--${message.type}`}>
-                  {message.text}
-                </div>
-              ))}
-            </div>
-            <form className="chat-form" onSubmit={handleChatSubmit}>
-              <input
-                value={chatInput}
-                onChange={(event) => setChatInput(event.target.value)}
-                placeholder="Ask about farmers, risk, fertilizer..."
-                aria-label="Ask AI assistant"
-              />
-              <button type="submit">Send</button>
-            </form>
-          </section>
-          )}
-        </aside>
-      </div>
+
+            <aside className="ai-side">
+              {['overview', 'chatbot'].includes(activeTab) && (
+                <section className="ai-card ai-chat">
+                  <div className="ai-card__header">
+                    <div>
+                      <h3>AI Chatbot</h3>
+                      <p>AI explains Rule Engine decisions. It does not make decisions.</p>
+                    </div>
+                  </div>
+                  <div className="chat-messages">
+                    {chatMessages.map((message, index) => (
+                      <div key={`${message.type}-${index}`} className={`chat-bubble chat-bubble--${message.type}`}>
+                        {message.text}
+                      </div>
+                    ))}
+                  </div>
+                  <form className="chat-form" onSubmit={handleChatSubmit}>
+                    <input
+                      value={chatInput}
+                      onChange={(event) => setChatInput(event.target.value)}
+                      placeholder="Ask about high-risk farmers, fertilizer patterns, inactive records..."
+                      aria-label="Ask AI chatbot"
+                    />
+                    <button type="submit">Send</button>
+                  </form>
+                </section>
+              )}
+            </aside>
+          </div>
+        </>
+      )}
     </section>
   );
 }
@@ -1205,27 +1094,44 @@ function AlertsPage() {
 }
 
 function FarmerRecordsPage() {
+  const [farmers, setFarmers] = useState([]);
+  const [state, setState] = useState({ status: 'loading', message: 'Loading farmer records...' });
   const [selectedFarmer, setSelectedFarmer] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDistrict, setSelectedDistrict] = useState('All Districts');
   const [selectedStatus, setSelectedStatus] = useState('All Status');
   const detailCardRef = useRef(null);
 
-  const filteredFarmerRows = useMemo(() => {
+  useEffect(() => {
+    setState({ status: 'loading', message: 'Loading farmer records...' });
+    const timer = setTimeout(() => {
+      const loadedFarmers = buildFarmerAnalysisRecords();
+      setFarmers(loadedFarmers);
+      setState({ status: 'success', message: loadedFarmers.length ? '' : 'No farmer records found.' });
+    }, 120);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const districts = useMemo(
+    () => ['All Districts', ...Array.from(new Set(farmers.map((farmer) => farmer.district).filter(Boolean)))],
+    [farmers]
+  );
+
+  const filteredFarmers = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
 
-    return farmerRows.filter((row) => {
-      const aadharNumber = row[0].replace(/\s/g, '');
-      const searchableText = `${row[0]} ${aadharNumber} ${row[1]}`.toLowerCase();
+    return farmers.filter((record) => {
+      const aadharNumber = record.id.replace(/\s/g, '');
+      const searchableText = `${record.id} ${aadharNumber} ${record.name}`.toLowerCase();
       const compactSearchableText = searchableText.replace(/\s/g, '');
       const compactSearch = normalizedSearch.replace(/\s/g, '');
       const matchesSearch = !normalizedSearch || searchableText.includes(normalizedSearch) || compactSearchableText.includes(compactSearch);
-      const matchesDistrict = selectedDistrict === 'All Districts' || row[2] === selectedDistrict;
-      const matchesStatus = selectedStatus === 'All Status' || row[6] === selectedStatus;
+      const matchesDistrict = selectedDistrict === 'All Districts' || record.district === selectedDistrict;
+      const matchesStatus = selectedStatus === 'All Status' || record.status === selectedStatus;
 
       return matchesSearch && matchesDistrict && matchesStatus;
     });
-  }, [searchTerm, selectedDistrict, selectedStatus]);
+  }, [farmers, searchTerm, selectedDistrict, selectedStatus]);
 
   return (
     <section className="page-content">
@@ -1239,8 +1145,7 @@ function FarmerRecordsPage() {
           aria-label="Search farmer records"
         />
         <select value={selectedDistrict} onChange={(event) => setSelectedDistrict(event.target.value)}>
-          <option>All Districts</option>
-          <option>Sehore</option>
+          {districts.map((district) => <option key={district}>{district}</option>)}
         </select>
         <select value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)}>
           <option>All Status</option>
@@ -1249,10 +1154,13 @@ function FarmerRecordsPage() {
         </select>
         <button type="button" className="filter-button">Filters</button>
       </div>
+      {state.status !== 'success' && (
+        <p className={`form-hint form-hint--${state.status === 'loading' ? 'saving' : 'error'}`}>{state.message}</p>
+      )}
       <div className="metric-grid">
-        <MetricCard icon="user" label="Total Farmers" value="8,752" accent="teal" />
-        <MetricCard icon="document" label="Total Transactions" value="18,540" accent="blue" />
-        <MetricCard icon="warning" label="Active Farmers" value="7,210" accent="orange" />
+        <MetricCard icon="user" label="Total Farmers" value={filteredFarmers.length} accent="teal" />
+        <MetricCard icon="document" label="Total Transactions" value={filteredFarmers.length} accent="blue" />
+        <MetricCard icon="warning" label="Active Farmers" value={filteredFarmers.filter((record) => String(record.status).toLowerCase() === 'active').length} accent="orange" />
       </div>
       {selectedFarmer && (
         <section className="farmer-detail-card" ref={detailCardRef} aria-live="polite">
@@ -1277,17 +1185,28 @@ function FarmerRecordsPage() {
       )}
       <DataTable
         columns={['Aadhar Card ID', 'Farmer Name', 'District', 'Last Transaction', 'Fertilizer Received', 'Total Received', 'Status', 'Action']}
-        rows={filteredFarmerRows.map((row) => [...row, 'View Details'])}
-        footer={`Showing ${filteredFarmerRows.length} of 20 records`}
+        rows={filteredFarmers.map((record) => [
+          record.id,
+          record.name,
+          record.district,
+          formatDate(record.lastPurchase),
+          record.fertilizerType,
+          `${record.fertilizerPurchasedKg} kg`,
+          record.status,
+          'View Details',
+        ])}
+        footer={`Showing ${filteredFarmers.length} records`}
         onAction={(row) => {
-          const detail = farmerDetailsByAadhar[row[0]] || {
-            name: row[1],
-            landSize: '2 acres',
-            cropType: 'Wheat',
-            fertilizerType: row[4],
-            monthlyLimit: row[5],
-            riskLevel: row[6] === 'Active' ? 'Low' : 'Medium',
-            reason: 'Hardcoded demo details for this farmer record.',
+          const farmer = filteredFarmers.find((record) => record.id === row[0]);
+          if (!farmer) return;
+          const detail = {
+            name: farmer.name,
+            landSize: farmer.landSize,
+            cropType: farmer.cropType,
+            fertilizerType: farmer.fertilizerType,
+            monthlyLimit: `${farmer.monthlyLimitKg} kg`,
+            riskLevel: farmer.severity,
+            reason: farmer.triggeredRules.join(', ') || 'No triggered rule',
           };
 
           setSelectedFarmer(detail);
@@ -1296,6 +1215,267 @@ function FarmerRecordsPage() {
           }, 0);
         }}
       />
+    </section>
+  );
+}
+
+function ScannerPage() {
+  const scannerRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const scanRequestRef = useRef(false);
+  const [cameras, setCameras] = useState([]);
+  const [selectedCamera, setSelectedCamera] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanStatus, setScanStatus] = useState('Ready');
+  const [scanResult, setScanResult] = useState('');
+  const [scanUpdate, setScanUpdate] = useState(null);
+  const [scanError, setScanError] = useState('');
+  const isResultUrl = /^https?:\/\//i.test(scanResult);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    Html5Qrcode.getCameras()
+      .then((availableCameras) => {
+        if (!isMounted) return;
+
+        setCameras(availableCameras);
+        if (availableCameras.length > 0) {
+          setSelectedCamera(availableCameras[0].id);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setScanStatus('Camera unavailable');
+        }
+      });
+
+    return () => {
+      isMounted = false;
+
+      if (scannerRef.current?.isScanning) {
+        scannerRef.current.stop()
+          .then(() => scannerRef.current?.clear())
+          .catch(() => {});
+      } else {
+        scannerRef.current?.clear?.();
+      }
+    };
+  }, []);
+
+  async function getScanner() {
+    if (!scannerRef.current) {
+      scannerRef.current = new Html5Qrcode('qr-reader');
+    }
+
+    return scannerRef.current;
+  }
+
+  async function stopScanner() {
+    const scanner = scannerRef.current;
+    if (!scanner) return;
+
+    if (scanner.isScanning) {
+      await scanner.stop();
+    }
+
+    scanner.clear();
+    setIsScanning(false);
+  }
+
+  function getBagIdFromScan(decodedText) {
+    try {
+      const parsedValue = JSON.parse(decodedText);
+      return parsedValue.bagId || parsedValue.bag_id || parsedValue.id || '';
+    } catch {
+      return decodedText;
+    }
+  }
+
+  async function handleScanSuccess(decodedText) {
+    if (scanRequestRef.current) return;
+
+    scanRequestRef.current = true;
+    setScanResult(decodedText);
+    setScanUpdate(null);
+    setScanError('');
+    setScanStatus('Updating bag status');
+
+    try {
+      if (scannerRef.current?.isScanning) {
+        await stopScanner();
+      }
+
+      const bagId = getBagIdFromScan(decodedText);
+
+      if (!bagId) {
+        throw new Error('The scanned QR code does not contain a bag ID.');
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/batches/scan`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ bagId }),
+      });
+
+      const result = await readJsonResponse(response);
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Unable to update bag status.');
+      }
+
+      setScanUpdate(result);
+      setScanStatus(result.changed ? 'Marked sent' : 'Already scanned');
+    } catch (error) {
+      setScanStatus('Scan update failed');
+      setScanError(error.message || 'Unable to update bag status.');
+    } finally {
+      scanRequestRef.current = false;
+    }
+  }
+
+  async function startScanner() {
+    setScanError('');
+    setScanStatus('Starting camera');
+
+    try {
+      const scanner = await getScanner();
+
+      if (scanner.isScanning) {
+        await stopScanner();
+      }
+
+      await scanner.start(
+        selectedCamera || { facingMode: 'environment' },
+        {
+          fps: 10,
+          qrbox: { width: 260, height: 260 },
+          aspectRatio: 1,
+        },
+        (decodedText) => {
+          handleScanSuccess(decodedText);
+        }
+      );
+
+      setIsScanning(true);
+      setScanStatus('Scanning');
+    } catch (error) {
+      setIsScanning(false);
+      setScanStatus('Camera unavailable');
+      setScanError(error?.message || 'Unable to start scanner.');
+    }
+  }
+
+  async function handleFileScan(event) {
+    const [file] = event.target.files || [];
+    if (!file) return;
+
+    setScanError('');
+    setScanStatus('Reading image');
+
+    try {
+      const scanner = await getScanner();
+
+      if (scanner.isScanning) {
+        await stopScanner();
+      }
+
+      const decodedText = await scanner.scanFile(file, true);
+      await handleScanSuccess(decodedText);
+    } catch (error) {
+      setScanStatus('No QR found');
+      setScanError(error?.message || 'No QR code could be read from this image.');
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  }
+
+  async function copyResult() {
+    if (!scanResult) return;
+
+    try {
+      await navigator.clipboard.writeText(scanResult);
+      setScanStatus('Copied');
+    } catch {
+      setScanError('Unable to copy result.');
+    }
+  }
+
+  return (
+    <section className="page-content">
+      <PageTitle title="Scanner" subtitle="Scan QR codes from camera or image files." />
+
+      <div className="scanner-layout">
+        <section className="scanner-panel">
+          <div className="scanner-toolbar">
+            <select
+              value={selectedCamera}
+              onChange={(event) => setSelectedCamera(event.target.value)}
+              disabled={isScanning || cameras.length === 0}
+              aria-label="Camera"
+            >
+              {cameras.length === 0 && <option value="">Default camera</option>}
+              {cameras.map((camera, index) => (
+                <option key={camera.id} value={camera.id}>
+                  {camera.label || `Camera ${index + 1}`}
+                </option>
+              ))}
+            </select>
+
+            <button type="button" className="primary-action" onClick={isScanning ? stopScanner : startScanner}>
+              {isScanning ? 'Stop' : 'Start'}
+            </button>
+
+            <label className="upload-action">
+              Upload
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileScan} />
+            </label>
+          </div>
+
+          <div className={`scanner-reader ${isScanning ? 'is-active' : ''}`}>
+            <div id="qr-reader" />
+            {!isScanning && (
+              <div className="scanner-placeholder">
+                <Icon type="scan" />
+              </div>
+            )}
+          </div>
+        </section>
+
+        <aside className="scanner-result-panel" aria-live="polite">
+          <span className="scanner-status">{scanStatus}</span>
+          <h3>Scan Result</h3>
+
+          {scanResult ? (
+            <>
+              <pre>{scanResult}</pre>
+              {scanUpdate && (
+                <div className={`scanner-update ${scanUpdate.changed ? 'is-sent' : 'is-unchanged'}`}>
+                  <strong>{scanUpdate.bagId}</strong>
+                  <span>{scanUpdate.message}</span>
+                  <small>Batch: {scanUpdate.batchNumber || 'Not found'} | Status: {scanUpdate.status}</small>
+                </div>
+              )}
+              <div className="scanner-result-actions">
+                <button type="button" className="outline-action" onClick={copyResult}>Copy</button>
+                {isResultUrl && (
+                  <a className="outline-action scanner-link" href={scanResult} target="_blank" rel="noreferrer">
+                    Open
+                  </a>
+                )}
+              </div>
+            </>
+          ) : (
+            <p>No QR code scanned yet.</p>
+          )}
+
+          {scanError && <p className="form-hint form-hint--error">{scanError}</p>}
+        </aside>
+      </div>
     </section>
   );
 }
@@ -1356,6 +1536,7 @@ function DataTable({ columns, rows, footer, onAction }) {
 
 function App() {
   const [activeSection, setActiveSection] = useState('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const activeDetail = useMemo(
     () => detailContent[activeSection] || detailContent.dashboard,
@@ -1364,7 +1545,7 @@ function App() {
 
   return (
     <div className="dashboard-shell">
-      <aside className="sidebar">
+      <aside className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
         <div className="sidebar-brand">
           <div className="brand-mark" aria-hidden="true">
             <div className="brand-mark__inner">GOI</div>
@@ -1377,7 +1558,10 @@ function App() {
               key={item.id}
               type="button"
               className={`sidebar-link ${activeSection === item.id ? 'is-active' : ''}`}
-              onClick={() => setActiveSection(item.id)}
+              onClick={() => {
+                setActiveSection(item.id);
+                setSidebarOpen(false);
+              }}
             >
               <span className="sidebar-link__icon">
                 <Icon type={item.icon} />
@@ -1390,7 +1574,10 @@ function App() {
         <button
           type="button"
           className={`sidebar-link sidebar-link--logout ${activeSection === 'logout' ? 'is-active' : ''}`}
-          onClick={() => setActiveSection('logout')}
+          onClick={() => {
+            setActiveSection('logout');
+            setSidebarOpen(false);
+          }}
         >
           <span className="sidebar-link__icon">
             <Icon type="logout" />
@@ -1402,6 +1589,11 @@ function App() {
       <main className="main-content">
         <header className="topbar">
           <div>
+            <button type="button" className="menu-toggle" onClick={() => setSidebarOpen((current) => !current)} aria-label="Toggle navigation menu">
+              <span />
+              <span />
+              <span />
+            </button>
             <h1>Government Dashboard</h1>
             <p>Fertilizer Distribution Monitoring System</p>
           </div>
@@ -1430,7 +1622,8 @@ function App() {
         {activeSection === 'analysis' && <AnalysisPage />}
         {activeSection === 'alerts' && <AlertsPage />}
         {activeSection === 'farmers' && <FarmerRecordsPage />}
-        {!['dashboard', 'add', 'records', 'analysis', 'alerts', 'farmers'].includes(activeSection) && (
+        {activeSection === 'scanner' && <ScannerPage />}
+        {!['dashboard', 'add', 'records', 'analysis', 'alerts', 'farmers', 'scanner'].includes(activeSection) && (
           <section className="detail-panel" aria-live="polite">
             <h3>{activeDetail.title}</h3>
             <p>{activeDetail.body}</p>
@@ -1444,3 +1637,5 @@ function App() {
 }
 
 export default App;
+
+
