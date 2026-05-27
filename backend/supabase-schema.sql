@@ -20,6 +20,24 @@ add column if not exists qr_codes jsonb not null default '[]'::jsonb;
 create index if not exists batches_created_at_idx on public.batches (created_at desc);
 create index if not exists batches_batch_number_idx on public.batches (batch_number);
 
+create table if not exists public.dealer_scan_records (
+  id uuid primary key default gen_random_uuid(),
+  decoded_text text not null,
+  decoded_payload jsonb not null default '{}'::jsonb,
+  bag_id text,
+  batch_number text,
+  product_name text,
+  number_of_bags integer,
+  manufacturer text,
+  bag_weight text,
+  matched_batch_id uuid,
+  scanned_at timestamptz not null default timezone('utc', now())
+);
+
+create index if not exists dealer_scan_records_scanned_at_idx on public.dealer_scan_records (scanned_at desc);
+create index if not exists dealer_scan_records_batch_number_idx on public.dealer_scan_records (batch_number);
+create index if not exists dealer_scan_records_bag_id_idx on public.dealer_scan_records (bag_id);
+
 alter table public.batches enable row level security;
 
 drop policy if exists "Allow anon insert batches" on public.batches;
