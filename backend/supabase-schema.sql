@@ -54,18 +54,29 @@ for select
 to anon
 using (true);
 
-alter table public.dealer_scan_records enable row level security;
+create table if not exists public.farmers (
+  id uuid primary key default gen_random_uuid(),
+  aadhar_id text not null,
+  farmer_name text not null,
+  district text,
+  last_transaction date,
+  fertilizer_received text,
+  total_received text,
+  status text,
+  land_size text,
+  crop_type text,
+  monthly_limit text,
+  created_at timestamptz not null default timezone('utc', now())
+);
 
-drop policy if exists "Allow anon insert dealer scan records" on public.dealer_scan_records;
-create policy "Allow anon insert dealer scan records"
-on public.dealer_scan_records
-for insert
-to anon
-with check (true);
+create index if not exists farmers_created_at_idx on public.farmers (created_at desc);
+create index if not exists farmers_aadhar_id_idx on public.farmers (aadhar_id);
 
-drop policy if exists "Allow anon select dealer scan records" on public.dealer_scan_records;
-create policy "Allow anon select dealer scan records"
-on public.dealer_scan_records
+alter table public.farmers enable row level security;
+
+drop policy if exists "Allow anon select farmers" on public.farmers;
+create policy "Allow anon select farmers"
+on public.farmers
 for select
 to anon
 using (true);
