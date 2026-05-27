@@ -1,3 +1,4 @@
+import { Html5Qrcode } from 'html5-qrcode';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 
@@ -10,6 +11,7 @@ const navItems = [
   { id: 'analysis', label: 'AI Analysis', icon: 'brain' },
   { id: 'alerts', label: 'Alerts', icon: 'bell' },
   { id: 'farmers', label: 'Farmer Records', icon: 'user' },
+  { id: 'scanner', label: 'Scanner', icon: 'scan' },
 ];
 
 const actionCards = [
@@ -52,6 +54,14 @@ const actionCards = [
     action: 'View Records',
     icon: 'user',
     accent: 'teal',
+  },
+  {
+    id: 'scanner',
+    title: 'Scanner',
+    description: 'Scan QR codes from live camera input or uploaded QR images.',
+    action: 'Open Scanner',
+    icon: 'scan',
+    accent: 'slate',
   },
 ];
 
@@ -115,6 +125,10 @@ const detailContent = {
     title: 'Farmer Records',
     body: 'Open farmer profiles, inspect transaction history, and validate fertilizer allocation across regions.',
   },
+  scanner: {
+    title: 'Scanner',
+    body: 'Scan QR codes from the camera or from an uploaded image.',
+  },
   distribution: {
     title: 'Total Distribution',
     body: 'This section highlights overall fertilizer movement in bags across the monitored reporting period.',
@@ -146,13 +160,6 @@ const farmerRows = [
   ['FRM10006', 'Vijay Patel', 'Vidisha', '14 May 2025', 'Urea', '500 kg', 'Active'],
   ['FRM10007', 'Radha Shankar', 'Raisen', '13 May 2025', 'NPK 20:20:0:13', '250 kg', 'Inactive'],
   ['FRM10008', 'Gopal Das', 'Hoshangabad', '12 May 2025', 'Urea', '500 kg', 'Active'],
-];
-
-const previousRows = [
-  ['DST10021', 'Sehore', 'Green Agro Center', 'Urea', '1,250 bags', '22 May 2025', 'Verified'],
-  ['DST10022', 'Vidisha', 'Kisan Seva Store', 'DAP', '840 bags', '21 May 2025', 'Verified'],
-  ['DST10023', 'Raisen', 'Madhya Fertilizer Depot', 'NPK', '610 bags', '20 May 2025', 'Pending'],
-  ['DST10024', 'Hoshangabad', 'Krishi Supply Hub', 'Urea', '1,100 bags', '19 May 2025', 'Verified'],
 ];
 
 const alertRows = [
@@ -245,6 +252,17 @@ function Icon({ type }) {
         <svg {...common}>
           <circle cx="12" cy="8" r="3.2" />
           <path d="M5 19a7 7 0 0 1 14 0" />
+        </svg>
+      );
+    case 'scan':
+      return (
+        <svg {...common}>
+          <path d="M4 8V5a1 1 0 0 1 1-1h3" />
+          <path d="M16 4h3a1 1 0 0 1 1 1v3" />
+          <path d="M20 16v3a1 1 0 0 1-1 1h-3" />
+          <path d="M8 20H5a1 1 0 0 1-1-1v-3" />
+          <path d="M7 12h10" />
+          <path d="M9 9h6v6H9z" />
         </svg>
       );
     case 'bag':
@@ -640,6 +658,7 @@ function AddPage() {
               <article key={qrCode.bagId} className="generated-bag-card qr-card">
                 <img src={qrCode.qrCodeDataUrl} alt={`QR for ${qrCode.bagId}`} className="qr-image" />
                 <strong>{qrCode.bagId}</strong>
+                <small>Status: {qrCode.status || 'not sent'}</small>
                 <a href={qrCode.qrCodeDataUrl} download={`${qrCode.bagId}.png`} className="table-action qr-download">
                   Download QR
                 </a>
@@ -787,9 +806,16 @@ function PreviousPage() {
               <div className="batch-subsection">
                 <h4>Bag IDs</h4>
                 <div className="detail-chip-grid">
-                  {(selectedBatch.bag_ids || []).map((bagId) => (
-                    <span key={bagId} className="detail-chip">{bagId}</span>
-                  ))}
+                  {(selectedBatch.bag_ids || []).map((bagId) => {
+                    const qrStatus = selectedBatch.qr_codes?.find((qrCode) => qrCode?.bagId === bagId)?.status;
+
+                    return (
+                      <span key={bagId} className="detail-chip">
+                        {bagId}
+                        <small>{qrStatus || 'not sent'}</small>
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -801,6 +827,7 @@ function PreviousPage() {
                       <article key={qrCode.bagId} className="generated-bag-card qr-card">
                         <img src={qrCode.qrCodeDataUrl} alt={`QR for ${qrCode.bagId}`} className="qr-image" />
                         <strong>{qrCode.bagId}</strong>
+                        <small>Status: {qrCode.status || 'not sent'}</small>
                         <a href={qrCode.qrCodeDataUrl} download={`${qrCode.bagId}.png`} className="table-action qr-download">
                           Download QR
                         </a>
@@ -959,6 +986,267 @@ function FarmerRecordsPage() {
   );
 }
 
+function ScannerPage() {
+  const scannerRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const scanRequestRef = useRef(false);
+  const [cameras, setCameras] = useState([]);
+  const [selectedCamera, setSelectedCamera] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanStatus, setScanStatus] = useState('Ready');
+  const [scanResult, setScanResult] = useState('');
+  const [scanUpdate, setScanUpdate] = useState(null);
+  const [scanError, setScanError] = useState('');
+  const isResultUrl = /^https?:\/\//i.test(scanResult);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    Html5Qrcode.getCameras()
+      .then((availableCameras) => {
+        if (!isMounted) return;
+
+        setCameras(availableCameras);
+        if (availableCameras.length > 0) {
+          setSelectedCamera(availableCameras[0].id);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setScanStatus('Camera unavailable');
+        }
+      });
+
+    return () => {
+      isMounted = false;
+
+      if (scannerRef.current?.isScanning) {
+        scannerRef.current.stop()
+          .then(() => scannerRef.current?.clear())
+          .catch(() => {});
+      } else {
+        scannerRef.current?.clear?.();
+      }
+    };
+  }, []);
+
+  async function getScanner() {
+    if (!scannerRef.current) {
+      scannerRef.current = new Html5Qrcode('qr-reader');
+    }
+
+    return scannerRef.current;
+  }
+
+  async function stopScanner() {
+    const scanner = scannerRef.current;
+    if (!scanner) return;
+
+    if (scanner.isScanning) {
+      await scanner.stop();
+    }
+
+    scanner.clear();
+    setIsScanning(false);
+  }
+
+  function getBagIdFromScan(decodedText) {
+    try {
+      const parsedValue = JSON.parse(decodedText);
+      return parsedValue.bagId || parsedValue.bag_id || parsedValue.id || '';
+    } catch {
+      return decodedText;
+    }
+  }
+
+  async function handleScanSuccess(decodedText) {
+    if (scanRequestRef.current) return;
+
+    scanRequestRef.current = true;
+    setScanResult(decodedText);
+    setScanUpdate(null);
+    setScanError('');
+    setScanStatus('Updating bag status');
+
+    try {
+      if (scannerRef.current?.isScanning) {
+        await stopScanner();
+      }
+
+      const bagId = getBagIdFromScan(decodedText);
+
+      if (!bagId) {
+        throw new Error('The scanned QR code does not contain a bag ID.');
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/batches/scan`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ bagId }),
+      });
+
+      const result = await readJsonResponse(response);
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Unable to update bag status.');
+      }
+
+      setScanUpdate(result);
+      setScanStatus(result.changed ? 'Marked sent' : 'Already scanned');
+    } catch (error) {
+      setScanStatus('Scan update failed');
+      setScanError(error.message || 'Unable to update bag status.');
+    } finally {
+      scanRequestRef.current = false;
+    }
+  }
+
+  async function startScanner() {
+    setScanError('');
+    setScanStatus('Starting camera');
+
+    try {
+      const scanner = await getScanner();
+
+      if (scanner.isScanning) {
+        await stopScanner();
+      }
+
+      await scanner.start(
+        selectedCamera || { facingMode: 'environment' },
+        {
+          fps: 10,
+          qrbox: { width: 260, height: 260 },
+          aspectRatio: 1,
+        },
+        (decodedText) => {
+          handleScanSuccess(decodedText);
+        }
+      );
+
+      setIsScanning(true);
+      setScanStatus('Scanning');
+    } catch (error) {
+      setIsScanning(false);
+      setScanStatus('Camera unavailable');
+      setScanError(error?.message || 'Unable to start scanner.');
+    }
+  }
+
+  async function handleFileScan(event) {
+    const [file] = event.target.files || [];
+    if (!file) return;
+
+    setScanError('');
+    setScanStatus('Reading image');
+
+    try {
+      const scanner = await getScanner();
+
+      if (scanner.isScanning) {
+        await stopScanner();
+      }
+
+      const decodedText = await scanner.scanFile(file, true);
+      await handleScanSuccess(decodedText);
+    } catch (error) {
+      setScanStatus('No QR found');
+      setScanError(error?.message || 'No QR code could be read from this image.');
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  }
+
+  async function copyResult() {
+    if (!scanResult) return;
+
+    try {
+      await navigator.clipboard.writeText(scanResult);
+      setScanStatus('Copied');
+    } catch {
+      setScanError('Unable to copy result.');
+    }
+  }
+
+  return (
+    <section className="page-content">
+      <PageTitle title="Scanner" subtitle="Scan QR codes from camera or image files." />
+
+      <div className="scanner-layout">
+        <section className="scanner-panel">
+          <div className="scanner-toolbar">
+            <select
+              value={selectedCamera}
+              onChange={(event) => setSelectedCamera(event.target.value)}
+              disabled={isScanning || cameras.length === 0}
+              aria-label="Camera"
+            >
+              {cameras.length === 0 && <option value="">Default camera</option>}
+              {cameras.map((camera, index) => (
+                <option key={camera.id} value={camera.id}>
+                  {camera.label || `Camera ${index + 1}`}
+                </option>
+              ))}
+            </select>
+
+            <button type="button" className="primary-action" onClick={isScanning ? stopScanner : startScanner}>
+              {isScanning ? 'Stop' : 'Start'}
+            </button>
+
+            <label className="upload-action">
+              Upload
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileScan} />
+            </label>
+          </div>
+
+          <div className={`scanner-reader ${isScanning ? 'is-active' : ''}`}>
+            <div id="qr-reader" />
+            {!isScanning && (
+              <div className="scanner-placeholder">
+                <Icon type="scan" />
+              </div>
+            )}
+          </div>
+        </section>
+
+        <aside className="scanner-result-panel" aria-live="polite">
+          <span className="scanner-status">{scanStatus}</span>
+          <h3>Scan Result</h3>
+
+          {scanResult ? (
+            <>
+              <pre>{scanResult}</pre>
+              {scanUpdate && (
+                <div className={`scanner-update ${scanUpdate.changed ? 'is-sent' : 'is-unchanged'}`}>
+                  <strong>{scanUpdate.bagId}</strong>
+                  <span>{scanUpdate.message}</span>
+                  <small>Batch: {scanUpdate.batchNumber || 'Not found'} | Status: {scanUpdate.status}</small>
+                </div>
+              )}
+              <div className="scanner-result-actions">
+                <button type="button" className="outline-action" onClick={copyResult}>Copy</button>
+                {isResultUrl && (
+                  <a className="outline-action scanner-link" href={scanResult} target="_blank" rel="noreferrer">
+                    Open
+                  </a>
+                )}
+              </div>
+            </>
+          ) : (
+            <p>No QR code scanned yet.</p>
+          )}
+
+          {scanError && <p className="form-hint form-hint--error">{scanError}</p>}
+        </aside>
+      </div>
+    </section>
+  );
+}
+
 function DataTable({ columns, rows, footer, onAction }) {
   return (
     <div className="table-panel">
@@ -1089,7 +1377,8 @@ function App() {
         {activeSection === 'analysis' && <AnalysisPage />}
         {activeSection === 'alerts' && <AlertsPage />}
         {activeSection === 'farmers' && <FarmerRecordsPage />}
-        {!['dashboard', 'add', 'records', 'analysis', 'alerts', 'farmers'].includes(activeSection) && (
+        {activeSection === 'scanner' && <ScannerPage />}
+        {!['dashboard', 'add', 'records', 'analysis', 'alerts', 'farmers', 'scanner'].includes(activeSection) && (
           <section className="detail-panel" aria-live="polite">
             <h3>{activeDetail.title}</h3>
             <p>{activeDetail.body}</p>
