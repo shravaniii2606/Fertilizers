@@ -489,29 +489,377 @@ function PreviousPage() {
   );
 }
 
+function getFarmerDetail(row) {
+  return farmerDetailsByAadhar[row[0]] || {
+    name: row[1],
+    landSize: '2 acres',
+    cropType: 'Wheat',
+    fertilizerType: row[4],
+    monthlyLimit: row[5],
+    riskLevel: row[6] === 'Active' ? 'Low' : 'Medium',
+    reason: row[6] === 'Active' ? 'Normal purchase activity.' : 'Inactive record requires follow-up.',
+  };
+}
+
+function getRiskScore(detail, row) {
+  const limit = Number.parseFloat(detail.monthlyLimit) || Number.parseFloat(row[5]) || 0;
+  const riskBase = { High: 78, Medium: 56, Low: 24 }[detail.riskLevel] || 35;
+  const landSize = Number.parseFloat(detail.landSize) || 1;
+  const fertilizerFactor = detail.fertilizerType === 'Potash' ? 7 : detail.fertilizerType === 'DAP' ? 5 : 2;
+  const activityFactor = row[6] === 'Inactive' ? 8 : 0;
+
+  return Math.min(96, Math.round(riskBase + limit * 0.9 + fertilizerFactor + activityFactor - landSize * 0.6));
+}
+
+function buildAnalysisRecords() {
+  return farmerRows.map((row) => {
+    const detail = getFarmerDetail(row);
+    const riskScore = getRiskScore(detail, row);
+
+    return {
+      aadhar: row[0],
+      name: row[1],
+      district: row[2],
+      lastTransaction: row[3],
+      fertilizer: row[4],
+      totalReceived: row[5],
+      status: row[6],
+      ...detail,
+      riskScore,
+    };
+  });
+}
+
+function getChatResponse(question, records, suspiciousFarmers, highRisk, topFertilizer) {
+  const normalizedQuestion = question.toLowerCase();
+  const mentionedFarmer = records.find((record) => normalizedQuestion.includes(record.name.toLowerCase()));
+  const mentionedAadhar = records.find((record) => normalizedQuestion.includes(record.aadhar.replace(/\s/g, '')));
+  const farmer = mentionedFarmer || mentionedAadhar;
+
+  if (farmer) {
+    return `${farmer.name} has a risk score of ${farmer.riskScore}. Risk level is ${farmer.riskLevel}. Reason: ${farmer.reason} Land size is ${farmer.landSize}, crop is ${farmer.cropType}, fertilizer is ${farmer.fertilizerType}, and monthly limit is ${farmer.monthlyLimit}.`;
+  }
+
+  if (normalizedQuestion.includes('high risk') || normalizedQuestion.includes('risk')) {
+    return `${highRisk.length} farmers are high risk. The highest risk farmer is ${suspiciousFarmers[0]?.name || 'not available'} with score ${suspiciousFarmers[0]?.riskScore || 0}. The main reasons are exceeded monthly limits, high purchase frequency, and inactive records.`;
+  }
+
+  if (normalizedQuestion.includes('fertilizer') || normalizedQuestion.includes('common')) {
+    return `${topFertilizer?.[0] || 'Urea'} is currently the most common fertilizer in farmer records, appearing in ${topFertilizer?.[1] || 0} out of ${records.length} records.`;
+  }
+
+  if (normalizedQuestion.includes('inactive') || normalizedQuestion.includes('active')) {
+    const inactiveCount = records.filter((record) => record.status === 'Inactive').length;
+    return `${inactiveCount} farmer records are inactive. These records are treated as follow-up signals because inactive status can indicate pending verification or irregular purchase behavior.`;
+  }
+
+  if (normalizedQuestion.includes('recommend')) {
+    return `Recommended action: review ${suspiciousFarmers.length} suspicious farmers first, prioritize ${highRisk.length} high-risk cases, and verify fertilizer purchases where monthly limits are exceeded.`;
+  }
+
+  return `I analyzed ${records.length} farmer records. Ask about a farmer name, Aadhaar number, high-risk farmers, fertilizer patterns, inactive records, or recommendations.`;
+}
+
 function AnalysisPage() {
+  const [activeTab, setActiveTab] = useState('overview');
+  const [analysisSearch, setAnalysisSearch] = useState('');
+  const [selectedDateRange, setSelectedDateRange] = useState('20 May 2025 - 27 May 2025');
+  const [selectedDistrict, setSelectedDistrict] = useState('Sehore');
+  const [selectedReview, setSelectedReview] = useState(null);
+  const [chatInput, setChatInput] = useState('');
+  const [chatMessages, setChatMessages] = useState([
+    {
+      type: 'answer',
+      text: 'Ask me about a farmer name, Aadhaar number, high-risk farmers, fertilizer patterns, inactive records, or recommendations.',
+    },
+  ]);
+  const analysisRecords = useMemo(() => buildAnalysisRecords(), []);
+  const filteredAnalysisRecords = useMemo(() => {
+    const normalizedSearch = analysisSearch.trim().toLowerCase();
+
+    return analysisRecords.filter((record) => {
+      const compactAadhar = record.aadhar.replace(/\s/g, '');
+      const searchableText = `${record.aadhar} ${compactAadhar} ${record.name} ${record.fertilizer} ${record.riskLevel}`.toLowerCase();
+      const matchesSearch = !normalizedSearch || searchableText.includes(normalizedSearch) || searchableText.replace(/\s/g, '').includes(normalizedSearch.replace(/\s/g, ''));
+      const matchesDistrict = selectedDistrict === 'All Districts' || record.district === selectedDistrict;
+
+      return matchesSearch && matchesDistrict;
+    });
+  }, [analysisRecords, analysisSearch, selectedDistrict]);
+  const suspiciousFarmers = filteredAnalysisRecords
+    .filter((record) => record.riskScore >= 55)
+    .sort((a, b) => b.riskScore - a.riskScore);
+  const highRisk = filteredAnalysisRecords.filter((record) => record.riskLevel === 'High');
+  const mediumRisk = filteredAnalysisRecords.filter((record) => record.riskLevel === 'Medium');
+  const lowRisk = filteredAnalysisRecords.filter((record) => record.riskLevel === 'Low');
+  const inactiveFarmers = filteredAnalysisRecords.filter((record) => record.status === 'Inactive');
+  const fertilizerCounts = filteredAnalysisRecords.reduce((counts, record) => {
+    counts[record.fertilizer] = (counts[record.fertilizer] || 0) + 1;
+    return counts;
+  }, {});
+  const topFertilizer = Object.entries(fertilizerCounts).sort((a, b) => b[1] - a[1])[0];
+  const aiConfidence = filteredAnalysisRecords.length ? Math.round(((filteredAnalysisRecords.length - inactiveFarmers.length) / filteredAnalysisRecords.length) * 100) : 0;
+  const riskRows = [
+    ['High Risk', highRisk.length, `${filteredAnalysisRecords.length ? Math.round((highRisk.length / filteredAnalysisRecords.length) * 100) : 0}%`, 'High purchase frequency or exceeded limit'],
+    ['Medium Risk', mediumRisk.length, `${filteredAnalysisRecords.length ? Math.round((mediumRisk.length / filteredAnalysisRecords.length) * 100) : 0}%`, 'Frequent purchase pattern needs review'],
+    ['Low Risk', lowRisk.length, `${filteredAnalysisRecords.length ? Math.round((lowRisk.length / filteredAnalysisRecords.length) * 100) : 0}%`, 'Normal land-size and purchase behavior'],
+  ];
+  const anomalyRows = suspiciousFarmers.slice(0, 5).map((record) => [
+    record.riskLevel === 'High' ? 'Limit Anomaly' : 'Pattern Anomaly',
+    record.reason,
+    record.name,
+    record.district,
+    record.lastTransaction,
+    record.riskLevel,
+  ]);
+  const tabs = [
+    ['overview', 'Overview'],
+    ['risk', 'Risk & Anomaly Detection'],
+    ['behavior', 'Behavior Patterns'],
+    ['recommendations', 'Recommendations'],
+    ['chatbot', 'AI Chatbot'],
+  ];
+
+  const handleChatSubmit = (event) => {
+    event.preventDefault();
+    const trimmedMessage = chatInput.trim();
+
+    if (!trimmedMessage) {
+      return;
+    }
+
+    setChatMessages((messages) => [
+      ...messages,
+      { type: 'question', text: trimmedMessage },
+      { type: 'answer', text: getChatResponse(trimmedMessage, filteredAnalysisRecords, suspiciousFarmers, highRisk, topFertilizer) },
+    ]);
+    setChatInput('');
+  };
+
   return (
-    <section className="page-content">
-      <PageTitle title="AI Analysis" subtitle="Analyze distribution patterns and detect irregularities using AI." />
-      <div className="metric-grid">
-        <MetricCard icon="brain" label="Risk Score" value="72" unit="/ 100" accent="purple" />
-        <MetricCard icon="warning" label="Flagged Clusters" value="8" accent="orange" />
-        <MetricCard icon="store" label="Dealer Variance" value="14%" accent="blue" />
-        <MetricCard icon="bag" label="Demand Forecast" value="18,900" unit="bags" accent="green" />
+    <section className="page-content ai-page">
+      <div className="ai-page-title">
+        <PageTitle title="AI Analysis" subtitle="Rule-based insights calculated from Farmer Records." />
+        <div className="ai-controls">
+          <input
+            type="search"
+            value={analysisSearch}
+            onChange={(event) => setAnalysisSearch(event.target.value)}
+            placeholder="Search farmer, Aadhaar or risk..."
+            aria-label="Search AI analysis records"
+          />
+          <select value={selectedDateRange} onChange={(event) => setSelectedDateRange(event.target.value)}>
+            <option>20 May 2025 - 27 May 2025</option>
+            <option>All Dates</option>
+          </select>
+          <select value={selectedDistrict} onChange={(event) => setSelectedDistrict(event.target.value)}>
+            <option>All Districts</option>
+            <option>Sehore</option>
+          </select>
+        </div>
       </div>
-      <div className="insight-grid">
-        <article className="insight-card">
-          <h3>High Demand Districts</h3>
-          <p>Sehore and Vidisha are projected to need additional Urea allocation in the next cycle.</p>
-        </article>
-        <article className="insight-card">
-          <h3>Irregular Activity</h3>
-          <p>Three dealers show purchase frequency above the expected range for their registered farmer count.</p>
-        </article>
-        <article className="insight-card">
-          <h3>Stock Recommendation</h3>
-          <p>Move 600 bags from low-demand blocks to active wheat and rice regions before month end.</p>
-        </article>
+
+      <div className="metric-grid ai-metric-grid">
+        <MetricCard icon="document" label="Records Analyzed" value={filteredAnalysisRecords.length} accent="blue" />
+        <MetricCard icon="warning" label="High Risk Farmers" value={highRisk.length} accent="orange" />
+        <MetricCard icon="user" label="Suspicious Farmers" value={suspiciousFarmers.length} accent="purple" />
+        <MetricCard icon="brain" label="AI Confidence" value={`${aiConfidence}%`} accent="green" />
+      </div>
+
+      <div className="ai-tabs" aria-label="AI analysis sections">
+        {tabs.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={activeTab === id ? 'is-active' : ''}
+            onClick={() => setActiveTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="ai-layout">
+        <div className="ai-main">
+          {selectedReview && (
+            <section className="farmer-detail-card">
+              <div className="farmer-detail-card__header">
+                <div>
+                  <p>Selected Risk Review</p>
+                  <h3>{selectedReview.name}</h3>
+                </div>
+                <span className={`risk-pill risk-${selectedReview.riskLevel.toLowerCase()}`}>{selectedReview.riskScore} Score</span>
+              </div>
+              <div className="farmer-detail-grid">
+                <div><span>Aadhaar</span><strong>{selectedReview.aadhar}</strong></div>
+                <div><span>Land Size</span><strong>{selectedReview.landSize}</strong></div>
+                <div><span>Crop</span><strong>{selectedReview.cropType}</strong></div>
+                <div><span>Monthly Limit</span><strong>{selectedReview.monthlyLimit}</strong></div>
+              </div>
+              <div className="farmer-detail-reason">
+                <span>Risk Reason</span>
+                <p>{selectedReview.reason}</p>
+              </div>
+            </section>
+          )}
+
+          {['overview', 'risk'].includes(activeTab) && (
+            <section className="ai-card">
+            <div className="ai-card__header">
+              <div>
+                <h3>Top Suspicious Farmers</h3>
+                <p>Ranked by risk score from farmer records</p>
+              </div>
+            </div>
+            <DataTable
+              compact
+              columns={['Aadhar', 'Farmer Name', 'Risk Score', 'Reason', 'Action']}
+              rows={suspiciousFarmers.slice(0, 6).map((record) => [
+                record.aadhar,
+                record.name,
+                record.riskScore,
+                record.reason,
+                'Review',
+              ])}
+              onAction={(row) => {
+                const record = suspiciousFarmers.find((farmer) => farmer.aadhar === row[0]);
+                setSelectedReview(record);
+              }}
+            />
+          </section>
+          )}
+
+          {['overview', 'risk'].includes(activeTab) && (
+            <section className="ai-card">
+            <div className="ai-card__header">
+              <div>
+                <h3>Recent Anomalies Detected</h3>
+                <p>Built from high and medium farmer risk records</p>
+              </div>
+            </div>
+            <DataTable
+              compact
+              columns={['Type', 'Description', 'Farmer', 'District', 'Detected On', 'Severity']}
+              rows={anomalyRows}
+            />
+          </section>
+          )}
+
+          {activeTab === 'behavior' && (
+            <section className="ai-card">
+              <div className="ai-card__header">
+                <div>
+                  <h3>Behavior Patterns</h3>
+                  <p>Calculated from crop, fertilizer and risk behavior in Farmer Records</p>
+                </div>
+              </div>
+              <div className="ai-insight-list">
+                <article><strong>{topFertilizer?.[0] || 'No fertilizer'} has the highest usage.</strong><span>This indicates where stock planning should focus first.</span></article>
+                <article><strong>{inactiveFarmers.length} farmers are inactive.</strong><span>Inactive farmers are weighted higher because they may need verification.</span></article>
+                <article><strong>{mediumRisk.length + highRisk.length} records have medium or high risk.</strong><span>These are the records that need manual review before approval.</span></article>
+              </div>
+            </section>
+          )}
+
+          {activeTab === 'recommendations' && (
+            <section className="ai-card">
+              <div className="ai-card__header">
+                <div>
+                  <h3>Recommendations</h3>
+                  <p>Generated from the current farmer analysis</p>
+                </div>
+              </div>
+              <div className="ai-insight-list">
+                <article><strong>Review high-risk farmers first.</strong><span>Start with {suspiciousFarmers[0]?.name || 'the top suspicious farmer'} because the score is highest.</span></article>
+                <article><strong>Verify monthly limits.</strong><span>High-risk reasons include exceeded limits and very high purchase frequency.</span></article>
+                <article><strong>Prioritize inactive records.</strong><span>{inactiveFarmers.length} inactive records should be checked before the next distribution cycle.</span></article>
+              </div>
+            </section>
+          )}
+        </div>
+
+        <aside className="ai-side">
+          {['overview', 'behavior', 'recommendations'].includes(activeTab) && (
+            <section className="ai-card">
+            <div className="ai-card__header">
+              <div>
+                <h3>AI Insights</h3>
+                <p>Patterns detected from the current farmer records</p>
+              </div>
+            </div>
+            <div className="ai-insight-list">
+              <article>
+                <strong>{topFertilizer?.[0] || 'Urea'} is the most common fertilizer.</strong>
+                <span>{topFertilizer?.[1] || 0} of {filteredAnalysisRecords.length} records use it.</span>
+              </article>
+              <article>
+                <strong>{suspiciousFarmers.length} farmers need review.</strong>
+                <span>Risk score is 55 or higher based on limit, fertilizer type, status and risk reason.</span>
+              </article>
+              <article>
+                <strong>{inactiveFarmers.length} inactive records found.</strong>
+                <span>Inactive records are treated as follow-up signals in the rule engine.</span>
+              </article>
+              <article>
+                <strong>{highRisk.length} farmers are high risk.</strong>
+                <span>Most high-risk cases are linked to exceeded limits or very high frequency.</span>
+              </article>
+            </div>
+          </section>
+          )}
+
+          {['overview', 'risk'].includes(activeTab) && (
+            <section className="ai-card">
+            <div className="ai-card__header">
+              <div>
+                <h3>Risk Score Distribution</h3>
+                <p>Based on farmer detail risk levels</p>
+              </div>
+            </div>
+            <div className="risk-bars">
+              {riskRows.map(([label, count, percent, note]) => (
+                <div className="risk-bar-row" key={label}>
+                  <div>
+                    <strong>{label}</strong>
+                    <span>{note}</span>
+                  </div>
+                  <div className="risk-bar-track">
+                    <span style={{ width: percent }} />
+                  </div>
+                  <b>{count} ({percent})</b>
+                </div>
+              ))}
+            </div>
+          </section>
+          )}
+
+          {['overview', 'chatbot'].includes(activeTab) && (
+            <section className="ai-card ai-chat">
+            <div className="ai-card__header">
+              <div>
+                <h3>AI Assistant</h3>
+                <p>Generated from farmer record analysis</p>
+              </div>
+            </div>
+            <div className="chat-messages">
+              {chatMessages.map((message, index) => (
+                <div key={`${message.type}-${index}`} className={`chat-bubble chat-bubble--${message.type}`}>
+                  {message.text}
+                </div>
+              ))}
+            </div>
+            <form className="chat-form" onSubmit={handleChatSubmit}>
+              <input
+                value={chatInput}
+                onChange={(event) => setChatInput(event.target.value)}
+                placeholder="Ask about farmers, risk, fertilizer..."
+                aria-label="Ask AI assistant"
+              />
+              <button type="submit">Send</button>
+            </form>
+          </section>
+          )}
+        </aside>
       </div>
     </section>
   );
