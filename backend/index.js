@@ -19,8 +19,6 @@ app.get('/', (req, res) => {
   res.send('Backend running');
 });
 
-console.log('Loaded SUPABASE_URL:', process.env.SUPABASE_URL);
-
 app.use('/api/batches', batchRoutes);
 app.use('/api/qrcodes', qrRoutes);
 

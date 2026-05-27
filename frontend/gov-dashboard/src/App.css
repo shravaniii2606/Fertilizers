@@ -995,13 +995,10 @@
 
   .metric-grid,
   .insight-grid,
-<<<<<<< HEAD
   .generated-bag-grid,
   .qr-grid,
-  .batch-detail-grid {
-=======
+  .batch-detail-grid,
   .farmer-detail-grid {
->>>>>>> 31c548f026bda49b2105ea345457fc933483b54a
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1086,11 +1083,10 @@
     flex-direction: column;
   }
 
-<<<<<<< HEAD
   .batch-form-actions {
     flex-direction: column;
   }
-=======
+
   .farmer-detail-card__header {
     flex-direction: column;
   }
@@ -1107,5 +1103,4 @@
     flex-direction: column;
     align-items: flex-start;
   }
->>>>>>> 31c548f026bda49b2105ea345457fc933483b54a
 }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
@@ -161,6 +161,36 @@ const alertRows = [
   ['ALT9003', 'Farmer limit exceeded', 'Raisen', 'High', 'Open'],
   ['ALT9004', 'Late transaction sync', 'Hoshangabad', 'Low', 'Resolved'],
 ];
+
+const farmerDetailsByAadhar = {
+  FRM10001: {
+    name: 'Ramesh Kumar',
+    landSize: '4.5 acres',
+    cropType: 'Wheat',
+    fertilizerType: 'Urea',
+    monthlyLimit: '500 kg',
+    riskLevel: 'Low',
+    reason: 'Purchase pattern is consistent with land size and recent sowing activity.',
+  },
+  FRM10002: {
+    name: 'Sita Devi',
+    landSize: '3 acres',
+    cropType: 'Soybean',
+    fertilizerType: 'DAP',
+    monthlyLimit: '300 kg',
+    riskLevel: 'Low',
+    reason: 'Recent transactions are within the approved allocation for the district.',
+  },
+  FRM10004: {
+    name: 'Shyam Singh',
+    landSize: '2.5 acres',
+    cropType: 'Paddy',
+    fertilizerType: 'NPK 20:20:0:13',
+    monthlyLimit: '250 kg',
+    riskLevel: 'Medium',
+    reason: 'Account is inactive and needs local verification before the next allotment.',
+  },
+};
 
 function Icon({ type }) {
   const common = { width: 34, height: 34, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '1.8', strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true };
@@ -429,7 +459,7 @@ function AddPage() {
         }),
       });
 
-      const qrResult = await qrResponse.json();
+      const qrResult = await readJsonResponse(qrResponse);
 
       if (!qrResponse.ok) {
         throw new Error(qrResult.error || 'Unable to generate QR codes.');
@@ -458,12 +488,12 @@ function AddPage() {
         body: JSON.stringify(batchPayload),
       });
 
-      const saveResult = await saveResponse.json();
+      const saveResult = await readJsonResponse(saveResponse);
 
       if (!saveResponse.ok) {
         throw new Error(saveResult.error || 'Unable to save batch.');
       }
-      setSaveState({ status: 'success', message: 'Batch saved and QR codes generated successfully.' });
+      setSaveState({ status: 'success', message: 'Batch saved to Supabase and QR codes generated successfully.' });
     } catch (error) {
       setSaveState({
         status: 'error',
@@ -648,6 +678,16 @@ function formatDate(value) {
   }).format(date);
 }
 
+async function readJsonResponse(response) {
+  const responseText = await response.text();
+
+  try {
+    return responseText ? JSON.parse(responseText) : {};
+  } catch (error) {
+    throw new Error(`Server returned ${response.status} ${response.statusText} instead of JSON.`);
+  }
+}
+
 function PreviousPage() {
   const [batches, setBatches] = useState([]);
   const [selectedBatch, setSelectedBatch] = useState(null);
@@ -664,7 +704,7 @@ function PreviousPage() {
         setHistoryState({ status: 'loading', message: 'Loading saved batches...' });
 
         const response = await fetch(`${API_BASE_URL}/api/batches`);
-        const result = await response.json();
+        const result = await readJsonResponse(response);
 
         if (!response.ok) {
           throw new Error(result.error || 'Unable to load batches.');
@@ -721,7 +761,12 @@ function PreviousPage() {
           <DataTable
             columns={['Batch Number', 'Product Name', 'No of Bags', 'Manufacturer', 'Expiry', 'Created On', 'Action']}
             rows={batchRows}
-            onActionClick={(rowIndex) => setSelectedBatch(batches[rowIndex])}
+            onAction={(row) => {
+              const selectedRowBatchNumber = row[0];
+              setSelectedBatch(
+                batches.find((batch) => batch.batch_number === selectedRowBatchNumber) || null
+              );
+            }}
           />
           {selectedBatch && (
             <section className="batch-detail-panel">
@@ -914,7 +959,7 @@ function FarmerRecordsPage() {
   );
 }
 
-function DataTable({ columns, rows, footer }) {
+function DataTable({ columns, rows, footer, onAction }) {
   return (
     <div className="table-panel">
       <table>
@@ -933,7 +978,15 @@ function DataTable({ columns, rows, footer }) {
                 return (
                   <td key={`${cell}-${index}`}>
                     {isStatus && <span className={`status-pill ${cell === 'Active' || cell === 'Verified' || cell === 'Resolved' ? 'is-active' : 'is-warning'}`}>{cell}</span>}
-                    {isAction && <button type="button" className="table-action">{cell}</button>}
+                    {isAction && (
+                      <button
+                        type="button"
+                        className="table-action"
+                        onClick={() => onAction?.(row, rowIndex)}
+                      >
+                        {cell}
+                      </button>
+                    )}
                     {!isStatus && !isAction && cell}
                   </td>
                 );
