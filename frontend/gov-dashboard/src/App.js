@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import './App.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
@@ -146,6 +146,13 @@ const farmerRows = [
   ['FRM10006', 'Vijay Patel', 'Vidisha', '14 May 2025', 'Urea', '500 kg', 'Active'],
   ['FRM10007', 'Radha Shankar', 'Raisen', '13 May 2025', 'NPK 20:20:0:13', '250 kg', 'Inactive'],
   ['FRM10008', 'Gopal Das', 'Hoshangabad', '12 May 2025', 'Urea', '500 kg', 'Active'],
+];
+
+const previousRows = [
+  ['DST10021', 'Sehore', 'Green Agro Center', 'Urea', '1,250 bags', '22 May 2025', 'Verified'],
+  ['DST10022', 'Vidisha', 'Kisan Seva Store', 'DAP', '840 bags', '21 May 2025', 'Verified'],
+  ['DST10023', 'Raisen', 'Madhya Fertilizer Depot', 'NPK', '610 bags', '20 May 2025', 'Pending'],
+  ['DST10024', 'Hoshangabad', 'Krishi Supply Hub', 'Urea', '1,100 bags', '19 May 2025', 'Verified'],
 ];
 
 const alertRows = [
@@ -812,31 +819,102 @@ function AlertsPage() {
 }
 
 function FarmerRecordsPage() {
+  const [selectedFarmer, setSelectedFarmer] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedDistrict, setSelectedDistrict] = useState('All Districts');
+  const [selectedStatus, setSelectedStatus] = useState('All Status');
+  const detailCardRef = useRef(null);
+
+  const filteredFarmerRows = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+
+    return farmerRows.filter((row) => {
+      const aadharNumber = row[0].replace(/\s/g, '');
+      const searchableText = `${row[0]} ${aadharNumber} ${row[1]}`.toLowerCase();
+      const compactSearchableText = searchableText.replace(/\s/g, '');
+      const compactSearch = normalizedSearch.replace(/\s/g, '');
+      const matchesSearch = !normalizedSearch || searchableText.includes(normalizedSearch) || compactSearchableText.includes(compactSearch);
+      const matchesDistrict = selectedDistrict === 'All Districts' || row[2] === selectedDistrict;
+      const matchesStatus = selectedStatus === 'All Status' || row[6] === selectedStatus;
+
+      return matchesSearch && matchesDistrict && matchesStatus;
+    });
+  }, [searchTerm, selectedDistrict, selectedStatus]);
+
   return (
     <section className="page-content">
       <PageTitle title="Farmer Records" subtitle="View and manage farmer details and transaction history." action="Export" />
       <div className="filter-row">
-        <input value="Search by farmer name, ID or phone..." readOnly />
-        <select value="All Districts" readOnly><option>All Districts</option></select>
-        <select value="All Status" readOnly><option>All Status</option></select>
+        <input
+          type="search"
+          value={searchTerm}
+          onChange={(event) => setSearchTerm(event.target.value)}
+          placeholder="Search by farmer name or Aadhaar number..."
+          aria-label="Search farmer records"
+        />
+        <select value={selectedDistrict} onChange={(event) => setSelectedDistrict(event.target.value)}>
+          <option>All Districts</option>
+          <option>Sehore</option>
+        </select>
+        <select value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)}>
+          <option>All Status</option>
+          <option>Active</option>
+          <option>Inactive</option>
+        </select>
         <button type="button" className="filter-button">Filters</button>
       </div>
       <div className="metric-grid">
         <MetricCard icon="user" label="Total Farmers" value="8,752" accent="teal" />
         <MetricCard icon="document" label="Total Transactions" value="18,540" accent="blue" />
-        <MetricCard icon="bag" label="Total Fertilizer Distributed" value="42,350" unit="MT" accent="purple" />
         <MetricCard icon="warning" label="Active Farmers" value="7,210" accent="orange" />
       </div>
+      {selectedFarmer && (
+        <section className="farmer-detail-card" ref={detailCardRef} aria-live="polite">
+          <div className="farmer-detail-card__header">
+            <div>
+              <p>Farmer Details</p>
+              <h3>{selectedFarmer.name}</h3>
+            </div>
+            <span className={`risk-pill risk-${selectedFarmer.riskLevel.toLowerCase()}`}>{selectedFarmer.riskLevel} Risk</span>
+          </div>
+          <div className="farmer-detail-grid">
+            <div><span>Land Size</span><strong>{selectedFarmer.landSize}</strong></div>
+            <div><span>Crop Type</span><strong>{selectedFarmer.cropType}</strong></div>
+            <div><span>Fertilizer Type</span><strong>{selectedFarmer.fertilizerType}</strong></div>
+            <div><span>Monthly Limit</span><strong>{selectedFarmer.monthlyLimit}</strong></div>
+          </div>
+          <div className="farmer-detail-reason">
+            <span>Reason</span>
+            <p>{selectedFarmer.reason}</p>
+          </div>
+        </section>
+      )}
       <DataTable
         columns={['Aadhar Card ID', 'Farmer Name', 'District', 'Last Transaction', 'Fertilizer Received', 'Total Received', 'Status', 'Action']}
-        rows={farmerRows.map((row) => [...row, 'View Details'])}
-        footer="Showing 1 to 8 of 8,752 records"
+        rows={filteredFarmerRows.map((row) => [...row, 'View Details'])}
+        footer={`Showing ${filteredFarmerRows.length} of 20 records`}
+        onAction={(row) => {
+          const detail = farmerDetailsByAadhar[row[0]] || {
+            name: row[1],
+            landSize: '2 acres',
+            cropType: 'Wheat',
+            fertilizerType: row[4],
+            monthlyLimit: row[5],
+            riskLevel: row[6] === 'Active' ? 'Low' : 'Medium',
+            reason: 'Hardcoded demo details for this farmer record.',
+          };
+
+          setSelectedFarmer(detail);
+          setTimeout(() => {
+            detailCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }, 0);
+        }}
       />
     </section>
   );
 }
 
-function DataTable({ columns, rows, footer, onActionClick }) {
+function DataTable({ columns, rows, footer }) {
   return (
     <div className="table-panel">
       <table>
@@ -855,7 +933,7 @@ function DataTable({ columns, rows, footer, onActionClick }) {
                 return (
                   <td key={`${cell}-${index}`}>
                     {isStatus && <span className={`status-pill ${cell === 'Active' || cell === 'Verified' || cell === 'Resolved' ? 'is-active' : 'is-warning'}`}>{cell}</span>}
-                    {isAction && <button type="button" className="table-action" onClick={() => onActionClick?.(rowIndex)}>{cell}</button>}
+                    {isAction && <button type="button" className="table-action">{cell}</button>}
                     {!isStatus && !isAction && cell}
                   </td>
                 );
