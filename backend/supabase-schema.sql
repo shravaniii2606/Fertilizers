@@ -19,6 +19,7 @@ add column if not exists qr_codes jsonb not null default '[]'::jsonb;
 
 create index if not exists batches_created_at_idx on public.batches (created_at desc);
 create index if not exists batches_batch_number_idx on public.batches (batch_number);
+create index if not exists batches_bag_ids_idx on public.batches using gin (bag_ids);
 
 create table if not exists public.dealer_scan_records (
   id uuid primary key default gen_random_uuid(),
@@ -53,6 +54,14 @@ on public.batches
 for select
 to anon
 using (true);
+
+drop policy if exists "Allow anon update batches" on public.batches;
+create policy "Allow anon update batches"
+on public.batches
+for update
+to anon
+using (true)
+with check (true);
 
 alter table public.dealer_scan_records enable row level security;
 

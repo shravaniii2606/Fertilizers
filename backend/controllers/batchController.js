@@ -21,6 +21,10 @@ function normalizeBatchPayload(body) {
   };
 }
 
+function normalizeBagId(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 async function createBatch(req, res) {
   try {
     const payload = normalizeBatchPayload(req.body);
@@ -82,7 +86,91 @@ async function listBatches(req, res) {
   }
 }
 
+async function markBagSent(req, res) {
+  try {
+    const bagId = normalizeBagId(req.body.bagId);
+
+    if (!bagId) {
+      return res.status(400).json({ error: 'Bag ID is required.' });
+    }
+
+    const supabase = getSupabaseClient();
+    const { data: batches, error: fetchError } = await supabase
+      .from(batchesTable)
+      .select('*')
+      .contains('bag_ids', [bagId])
+      .limit(1);
+
+    if (fetchError) {
+      return res.status(500).json({ error: fetchError.message });
+    }
+
+    const batch = batches?.[0];
+
+    if (!batch) {
+      return res.status(404).json({ error: 'No batch found for this bag ID.' });
+    }
+
+    const currentQRCodes = Array.isArray(batch.qr_codes) ? batch.qr_codes : [];
+    const matchingQRCode = currentQRCodes.find((qrCode) => qrCode?.bagId === bagId);
+    const currentStatus = matchingQRCode?.status ?? null;
+
+    if (currentStatus === 'sent') {
+      return res.status(200).json({
+        bagId,
+        batchNumber: batch.batch_number,
+        status: currentStatus,
+        changed: false,
+        message: 'This bag was already marked as sent.',
+      });
+    }
+
+    if (currentStatus !== null) {
+      return res.status(200).json({
+        bagId,
+        batchNumber: batch.batch_number,
+        status: currentStatus,
+        changed: false,
+        message: `This bag already has status "${currentStatus}".`,
+      });
+    }
+
+    const nextQRCodes = matchingQRCode
+      ? currentQRCodes.map((qrCode) => (
+        qrCode?.bagId === bagId
+          ? { ...qrCode, status: 'sent' }
+          : qrCode
+      ))
+      : [...currentQRCodes, { bagId, status: 'sent' }];
+
+    const { data: updatedBatch, error: updateError } = await supabase
+      .from(batchesTable)
+      .update({ qr_codes: nextQRCodes })
+      .eq('id', batch.id)
+      .select('*')
+      .single();
+
+    if (updateError) {
+      return res.status(500).json({ error: updateError.message });
+    }
+
+    return res.status(200).json({
+      bagId,
+      batchNumber: updatedBatch.batch_number,
+      status: 'sent',
+      changed: true,
+      message: 'Bag marked as sent.',
+    });
+  } catch (error) {
+    const causeMessage = error.cause?.message || error.cause?.code || null;
+    const details = [error.message, causeMessage].filter(Boolean).join(' | ');
+    console.error('Mark bag sent failed:', error);
+    return res.status(500).json({ error: details || 'Unknown server error' });
+  }
+}
+
 module.exports = {
   createBatch,
   listBatches,
+  markBagSent,
 };
