@@ -9,6 +9,7 @@ const cors = require('cors');
 const batchRoutes = require('./routes/batchRoutes');
 const farmerRecordRoutes = require('./routes/farmerRecordRoutes');
 const qrRoutes = require('./routes/qrRoutes');
+const farmerRoutes = require('./routes/farmerRoutes');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -23,6 +24,7 @@ app.get('/', (req, res) => {
 app.use('/api/batches', batchRoutes);
 app.use('/api/farmer-records', farmerRecordRoutes);
 app.use('/api/qrcodes', qrRoutes);
+app.use('/api/farmers', farmerRoutes);
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);

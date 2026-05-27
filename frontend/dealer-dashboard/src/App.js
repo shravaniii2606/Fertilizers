@@ -514,6 +514,18 @@ function App() {
   const [farmerData, setFarmerData] = useState(null);
   const [dealerDetails, setDealerDetails] = useState(dealerDetailsByLanguage.en);
   const [isEditingDealer, setIsEditingDealer] = useState(false);
+  const [scanMode, setScanMode] = useState('camera');
+  const [scannerActive, setScannerActive] = useState(false);
+  const [scanError, setScanError] = useState('');
+  const [scannedText, setScannedText] = useState('');
+  const [scannedBatch, setScannedBatch] = useState(null);
+  const [scanSaveStatus, setScanSaveStatus] = useState('');
+  const [scanRecords, setScanRecords] = useState([]);
+  const [recordsStatus, setRecordsStatus] = useState({
+    status: 'idle',
+    message: '',
+  });
+  const html5QrCodeRef = useRef(null);
   const texts = translations[language];
 
   const digitMap = {
@@ -524,6 +536,14 @@ function App() {
   const localizeDigits = (value) => {
     if (language === 'en' || value === null || value === undefined) return value;
     return String(value).replace(/\d/g, (digit) => digitMap[language][digit] ?? digit);
+  };
+
+  const formatDateTime = (value) => {
+    if (!value) return 'N/A';
+    return new Intl.DateTimeFormat('en-IN', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(new Date(value));
   };
 
   // Hardcoded farmer data
@@ -583,6 +603,201 @@ function App() {
   const updateDealerDetail = (field, value) => {
     setDealerDetails((prev) => ({ ...prev, [field]: value }));
   };
+
+  const clearScanResult = () => {
+    setScannedText('');
+    setScannedBatch(null);
+    setScanError('');
+    setScanSaveStatus('');
+  };
+
+  const parseDecodedPayload = (decodedText) => {
+    try {
+      const parsed = JSON.parse(decodedText);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch (error) {
+      return {};
+    }
+  };
+
+  const fetchBatchDetails = async (decodedText) => {
+    try {
+      const decodedPayload = parseDecodedPayload(decodedText);
+      const res = await fetch(`${API_BASE_URL}/api/batches`);
+      if (!res.ok) {
+        throw new Error(`Backend returned ${res.status}`);
+      }
+      const payload = await res.json();
+      const batches = payload.batches || [];
+      const decodedBagId = decodedPayload.bagId || decodedText;
+      const decodedBatchNumber = decodedPayload.batchNumber || decodedText;
+
+      return batches.find((b) =>
+        b.batch_number === decodedBatchNumber ||
+        (Array.isArray(b.bag_ids) && b.bag_ids.includes(decodedBagId)) ||
+        (Array.isArray(b.qr_codes) && b.qr_codes.some((qrCode) =>
+          qrCode?.bagId === decodedBagId ||
+          qrCode?.payload === decodedText ||
+          qrCode === decodedText
+        ))
+      ) || null;
+    } catch (error) {
+      console.warn('Could not fetch batches:', error.message || error);
+      return null;
+    }
+  };
+
+  const loadScanRecords = async () => {
+    try {
+      setRecordsStatus({ status: 'loading', message: 'Loading previous scan records...' });
+      const response = await fetch(`${API_BASE_URL}/api/scan-records`);
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || 'Unable to load previous scan records.');
+      }
+
+      const records = payload.scanRecords || [];
+      setScanRecords(records);
+      setRecordsStatus({
+        status: 'success',
+        message: records.length ? '' : 'No scanned batch records yet.',
+      });
+    } catch (error) {
+      setRecordsStatus({
+        status: 'error',
+        message: error.message || 'Unable to load previous scan records.',
+      });
+    }
+  };
+
+  const saveScanRecord = async (decodedText, batch) => {
+    try {
+      setScanSaveStatus('Saving scan record...');
+      const decodedPayload = parseDecodedPayload(decodedText);
+      const response = await fetch(`${API_BASE_URL}/api/scan-records`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          decodedText,
+          decodedPayload,
+          batch,
+        }),
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || 'Unable to save scan record.');
+      }
+
+      setScanSaveStatus('Scan record saved.');
+      setScanRecords((records) => [payload.scanRecord, ...records]);
+    } catch (error) {
+      setScanSaveStatus(error.message || 'Scan result shown, but saving failed.');
+    }
+  };
+
+  const stopScanner = async () => {
+    const qr = html5QrCodeRef.current;
+    if (qr) {
+      try {
+        await qr.stop();
+      } catch (error) {
+        // ignore stop failures
+      }
+      try {
+        qr.clear();
+      } catch (error) {
+        // ignore clear failures
+      }
+      html5QrCodeRef.current = null;
+    }
+    setScannerActive(false);
+  };
+
+  const handleDecodedValue = async (decodedText) => {
+    setScannedText(decodedText);
+    const batch = await fetchBatchDetails(decodedText);
+    setScannedBatch(batch);
+    await saveScanRecord(decodedText, batch);
+    if (scanMode === 'camera') {
+      await stopScanner();
+    }
+  };
+
+  const startCameraScanner = async () => {
+    clearScanResult();
+    setScanError('');
+    if (scannerActive) {
+      return;
+    }
+
+    try {
+      const { Html5Qrcode } = await import('html5-qrcode');
+      const qrRegionId = 'qr-reader';
+      const html5QrCode = new Html5Qrcode(qrRegionId);
+      html5QrCodeRef.current = html5QrCode;
+
+      const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+
+      const qrSuccess = async (decodedText) => {
+        await handleDecodedValue(decodedText);
+      };
+
+      const qrFailure = () => {
+        // ignore occasional failed frames
+      };
+
+      await html5QrCode.start({ facingMode: 'environment' }, config, qrSuccess, qrFailure);
+      setScannerActive(true);
+    } catch (error) {
+      setScanError(`Camera scanner failed: ${error?.message || error}`);
+      console.error('Camera scanner error:', error);
+      setScannerActive(false);
+    }
+  };
+
+  const handleUploadFile = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    clearScanResult();
+    setScanError('');
+
+    try {
+      const { Html5Qrcode } = await import('html5-qrcode');
+      let html5QrCode = html5QrCodeRef.current;
+      if (!html5QrCode) {
+        html5QrCode = new Html5Qrcode('qr-reader');
+        html5QrCodeRef.current = html5QrCode;
+      }
+
+      const result = await html5QrCode.scanFileV2(file, true);
+      const decodedText = result?.decodedText || (Array.isArray(result) ? result[0]?.decodedText : null);
+
+      if (decodedText) {
+        await handleDecodedValue(decodedText);
+      } else {
+        setScanError('No QR code found in the uploaded image.');
+      }
+    } catch (error) {
+      setScanError(`Upload scan failed: ${error?.message || error}`);
+      console.error('Upload scan error:', error);
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  useEffect(() => {
+    if (currentPage !== 'scan') {
+      stopScanner();
+    }
+  }, [currentPage]);
+
+  useEffect(() => {
+    if (currentPage === 'previous') {
+      loadScanRecords();
+    }
+  }, [currentPage]);
 
   return (
     <div className="dealer-dashboard">
@@ -754,8 +969,42 @@ function App() {
                 <p className="subtitle">{texts.previousRecordsSubtitle}</p>
               </div>
             </header>
-            <section className="empty-section">
-              <p>{texts.featureComingSoon}</p>
+            <section className="records-section">
+              {recordsStatus.status === 'loading' && <p className="records-message">{recordsStatus.message}</p>}
+              {recordsStatus.status === 'error' && <p className="records-message error">{recordsStatus.message}</p>}
+              {recordsStatus.status === 'success' && scanRecords.length === 0 && (
+                <p className="records-message">{recordsStatus.message}</p>
+              )}
+              {scanRecords.length > 0 && (
+                <div className="records-table-wrap">
+                  <table className="records-table">
+                    <thead>
+                      <tr>
+                        <th>Scanned At</th>
+                        <th>Bag ID</th>
+                        <th>Batch Number</th>
+                        <th>Product</th>
+                        <th>Bags</th>
+                        <th>Manufacturer</th>
+                        <th>Weight</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {scanRecords.map((record) => (
+                        <tr key={record.id}>
+                          <td>{formatDateTime(record.scanned_at)}</td>
+                          <td>{record.bag_id || 'N/A'}</td>
+                          <td>{record.batch_number || 'N/A'}</td>
+                          <td>{record.product_name || 'N/A'}</td>
+                          <td>{record.number_of_bags || 'N/A'}</td>
+                          <td>{record.manufacturer || 'N/A'}</td>
+                          <td>{record.bag_weight || 'N/A'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </section>
           </>
         )}
