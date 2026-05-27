@@ -114,63 +114,27 @@ const cropFertilizerRules = {
   paddy: ['urea', 'npk 20:20:0:13'],
 };
 
-function runRuleEngine(record) {
-  let riskScore = 0;
-  const triggeredRules = [];
+function getFarmerTransactions(farmerId, lastTransaction, fertilizerType, totalReceived) {
+  const transactionTimes = ['10:30 AM', '12:15 PM', '02:40 PM', '04:05 PM', '05:25 PM'];
+  const transactionDates = [
+    lastTransaction,
+    '16 May 2025',
+    '12 May 2025',
+    '08 May 2025',
+    '04 May 2025',
+  ];
+  const totalKg = Number.parseFloat(String(totalReceived).replace(/[^\d.]/g, '')) || 250;
+  const kgPerTransaction = Math.max(1, Math.round(totalKg / 5));
+  const farmerSuffix = farmerId.replace(/\D/g, '').slice(-5) || '10000';
 
-  if (record.purchases > 5) {
-    riskScore += 25;
-    triggeredRules.push('High purchase frequency');
-  }
-
-  if (record.fertilizerPurchasedKg > record.districtAverageKg * 2) {
-    riskScore += 30;
-    triggeredRules.push('Unusual quantity');
-  }
-
-  if (record.dealersUsed > 2) {
-    riskScore += 15;
-    triggeredRules.push('Multiple dealer purchases');
-  }
-
-  const cropKey = String(record.cropType || '').toLowerCase();
-  const fertilizerKey = String(record.fertilizerType || '').toLowerCase();
-  if (cropFertilizerRules[cropKey] && !cropFertilizerRules[cropKey].includes(fertilizerKey)) {
-    riskScore += 20;
-    triggeredRules.push('Crop-fertilizer mismatch');
-  }
-
-  if (record.previous30DayAvgKg > 0 && record.fertilizerPurchasedKg > record.previous30DayAvgKg * 1.8) {
-    riskScore += 20;
-    triggeredRules.push('Sudden purchase spike');
-  }
-
-  const boundedRisk = Math.max(0, Math.min(100, riskScore));
-  const severity = boundedRisk >= 70 ? 'High' : boundedRisk >= 40 ? 'Medium' : 'Low';
-
-  return {
-    riskScore: boundedRisk,
-    severity,
-    suspicious: boundedRisk >= 40,
-    triggeredRules,
-    recommendationTags: triggeredRules.length > 0 ? ['Field Verification', 'Dealer Cross-check'] : ['Routine Monitoring'],
-    alerts: triggeredRules.map((rule) => ({
-      rule,
-      severity,
-      message: `${record.name} triggered: ${rule}`,
-    })),
-  };
-}
-
-function buildFarmerAnalysisRecords() {
-  return mockFarmerRecords.map((record) => {
-    const ruleResult = runRuleEngine(record);
-    return {
-      ...record,
-      ...ruleResult,
-      aiInsight: `${record.name} purchase behavior is ${(record.fertilizerPurchasedKg / record.districtAverageKg).toFixed(1)}x district average in ${record.district}.`,
-    };
-  });
+  return transactionTimes.map((time, index) => [
+    `${transactionDates[index]}, ${time}`,
+    'Raj Singh Dealer',
+    fertilizerType,
+    `BATCH-${farmerSuffix}-${String(index + 1).padStart(2, '0')}`,
+    `${farmerId}-BAG-${String(index + 1).padStart(3, '0')}`,
+    `${kgPerTransaction} kg`,
+  ]);
 }
 
 function Icon({ type }) {
@@ -1100,7 +1064,40 @@ function FarmerRecordsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDistrict, setSelectedDistrict] = useState('All Districts');
   const [selectedStatus, setSelectedStatus] = useState('All Status');
-  const detailCardRef = useRef(null);
+  const [farmerMetrics, setFarmerMetrics] = useState({
+    totalFarmers: 8752,
+    activeFarmers: 7210,
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadFarmerMetrics() {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/farmer-records/metrics`);
+        const result = await readJsonResponse(response);
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Unable to load farmer metrics.');
+        }
+
+        if (isMounted) {
+          setFarmerMetrics({
+            totalFarmers: result.totalFarmers ?? 0,
+            activeFarmers: result.activeFarmers ?? 0,
+          });
+        }
+      } catch (error) {
+        console.error('Unable to load farmer metrics:', error);
+      }
+    }
+
+    loadFarmerMetrics();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     setState({ status: 'loading', message: 'Loading farmer records...' });
@@ -1133,6 +1130,56 @@ function FarmerRecordsPage() {
     });
   }, [farmers, searchTerm, selectedDistrict, selectedStatus]);
 
+  if (selectedFarmer) {
+    return (
+      <section className="page-content">
+        <PageTitle
+          title="Farmer Details"
+          subtitle="Review the selected farmer record."
+          action="Back"
+          onAction={() => setSelectedFarmer(null)}
+        />
+
+        <section className="farmer-detail-card farmer-detail-card--page" aria-live="polite">
+          <div className="farmer-detail-card__header">
+            <div>
+              <p>Farmer Details</p>
+              <h3>{selectedFarmer.name}</h3>
+            </div>
+            <span className={`risk-pill risk-${selectedFarmer.riskLevel.toLowerCase()}`}>{selectedFarmer.riskLevel} Risk</span>
+          </div>
+          <div className="farmer-detail-grid">
+            <div><span>Aadhar Card ID</span><strong>{selectedFarmer.aadharCardId}</strong></div>
+            <div><span>District</span><strong>{selectedFarmer.district}</strong></div>
+            <div><span>Last Transaction</span><strong>{selectedFarmer.lastTransaction}</strong></div>
+            <div><span>Status</span><strong>{selectedFarmer.status}</strong></div>
+            <div><span>Land Size</span><strong>{selectedFarmer.landSize}</strong></div>
+            <div><span>Crop Type</span><strong>{selectedFarmer.cropType}</strong></div>
+            <div><span>Fertilizer Type</span><strong>{selectedFarmer.fertilizerType}</strong></div>
+            <div><span>Total Received</span><strong>{selectedFarmer.totalReceived}</strong></div>
+            <div><span>Monthly Limit</span><strong>{selectedFarmer.monthlyLimit}</strong></div>
+            <div><span>Fertilizers Needed</span><strong>{selectedFarmer.fertilizersNeeded}</strong></div>
+          </div>
+          <div className="farmer-detail-reason">
+            <span>Reason</span>
+            <p>{selectedFarmer.reason}</p>
+          </div>
+        </section>
+
+        <section className="farmer-transactions-panel">
+          <div className="farmer-transactions-panel__header">
+            <h3>Transactions</h3>
+            <p>Recent fertilizer transactions for this farmer.</p>
+          </div>
+          <DataTable
+            columns={['Date Time', 'Dealer', 'Fertilizer Name', 'Batch Number', 'Bag ID', 'KG']}
+            rows={selectedFarmer.transactions}
+          />
+        </section>
+      </section>
+    );
+  }
+
   return (
     <section className="page-content">
       <PageTitle title="Farmer Records" subtitle="View and manage farmer details and transaction history." action="Export" />
@@ -1158,31 +1205,10 @@ function FarmerRecordsPage() {
         <p className={`form-hint form-hint--${state.status === 'loading' ? 'saving' : 'error'}`}>{state.message}</p>
       )}
       <div className="metric-grid">
-        <MetricCard icon="user" label="Total Farmers" value={filteredFarmers.length} accent="teal" />
-        <MetricCard icon="document" label="Total Transactions" value={filteredFarmers.length} accent="blue" />
-        <MetricCard icon="warning" label="Active Farmers" value={filteredFarmers.filter((record) => String(record.status).toLowerCase() === 'active').length} accent="orange" />
+        <MetricCard icon="user" label="Total Farmers" value={farmerMetrics.totalFarmers.toLocaleString('en-IN')} accent="teal" />
+        <MetricCard icon="document" label="Total Transactions" value="18,540" accent="blue" />
+        <MetricCard icon="warning" label="Active Farmers" value={farmerMetrics.activeFarmers.toLocaleString('en-IN')} accent="orange" />
       </div>
-      {selectedFarmer && (
-        <section className="farmer-detail-card" ref={detailCardRef} aria-live="polite">
-          <div className="farmer-detail-card__header">
-            <div>
-              <p>Farmer Details</p>
-              <h3>{selectedFarmer.name}</h3>
-            </div>
-            <span className={`risk-pill risk-${selectedFarmer.riskLevel.toLowerCase()}`}>{selectedFarmer.riskLevel} Risk</span>
-          </div>
-          <div className="farmer-detail-grid">
-            <div><span>Land Size</span><strong>{selectedFarmer.landSize}</strong></div>
-            <div><span>Crop Type</span><strong>{selectedFarmer.cropType}</strong></div>
-            <div><span>Fertilizer Type</span><strong>{selectedFarmer.fertilizerType}</strong></div>
-            <div><span>Monthly Limit</span><strong>{selectedFarmer.monthlyLimit}</strong></div>
-          </div>
-          <div className="farmer-detail-reason">
-            <span>Reason</span>
-            <p>{selectedFarmer.reason}</p>
-          </div>
-        </section>
-      )}
       <DataTable
         columns={['Aadhar Card ID', 'Farmer Name', 'District', 'Last Transaction', 'Fertilizer Received', 'Total Received', 'Status', 'Action']}
         rows={filteredFarmers.map((record) => [
@@ -1197,22 +1223,26 @@ function FarmerRecordsPage() {
         ])}
         footer={`Showing ${filteredFarmers.length} records`}
         onAction={(row) => {
-          const farmer = filteredFarmers.find((record) => record.id === row[0]);
-          if (!farmer) return;
           const detail = {
-            name: farmer.name,
-            landSize: farmer.landSize,
-            cropType: farmer.cropType,
-            fertilizerType: farmer.fertilizerType,
-            monthlyLimit: `${farmer.monthlyLimitKg} kg`,
-            riskLevel: farmer.severity,
-            reason: farmer.triggeredRules.join(', ') || 'No triggered rule',
+            ...(farmerDetailsByAadhar[row[0]] || {
+              landSize: '2 acres',
+              cropType: 'Wheat',
+              monthlyLimit: row[5],
+              riskLevel: row[6] === 'Active' ? 'Low' : 'Medium',
+              reason: 'Hardcoded demo details for this farmer record.',
+            }),
+            aadharCardId: row[0],
+            name: row[1],
+            district: row[2],
+            lastTransaction: row[3],
+            fertilizerType: row[4],
+            totalReceived: row[5],
+            status: row[6],
+            fertilizersNeeded: 'Not set',
           };
 
+          detail.transactions = getFarmerTransactions(row[0], row[3], row[4], row[5]);
           setSelectedFarmer(detail);
-          setTimeout(() => {
-            detailCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }, 0);
         }}
       />
     </section>
@@ -1368,6 +1398,28 @@ function ScannerPage() {
     }
   }
 
+  async function scanFileWithNativeDetector(file) {
+    if (!window.BarcodeDetector || !window.createImageBitmap) {
+      throw new Error('Native QR detector is not available in this browser.');
+    }
+
+    const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+    const imageBitmap = await window.createImageBitmap(file);
+
+    try {
+      const codes = await detector.detect(imageBitmap);
+      const qrCode = codes.find((code) => code.rawValue);
+
+      if (!qrCode) {
+        throw new Error('No QR code could be read from this image.');
+      }
+
+      return qrCode.rawValue;
+    } finally {
+      imageBitmap.close?.();
+    }
+  }
+
   async function handleFileScan(event) {
     const [file] = event.target.files || [];
     if (!file) return;
@@ -1382,7 +1434,15 @@ function ScannerPage() {
         await stopScanner();
       }
 
-      const decodedText = await scanner.scanFile(file, true);
+      let decodedText;
+
+      try {
+        decodedText = await scanner.scanFile(file, true);
+      } catch (scanFileError) {
+        scanner.clear();
+        decodedText = await scanFileWithNativeDetector(file);
+      }
+
       await handleScanSuccess(decodedText);
     } catch (error) {
       setScanStatus('No QR found');

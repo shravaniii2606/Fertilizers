@@ -687,6 +687,24 @@
   line-height: 1.55;
 }
 
+.farmer-transactions-panel {
+  margin-top: 24px;
+}
+
+.farmer-transactions-panel__header {
+  margin-bottom: 14px;
+}
+
+.farmer-transactions-panel__header h3 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.farmer-transactions-panel__header p {
+  margin: 8px 0 0;
+  color: #475569;
+}
+
 .table-footer {
   min-width: 920px;
   padding: 16px 18px;
