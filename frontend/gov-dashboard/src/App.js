@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import './App.css';
 
 const navItems = [
@@ -136,15 +136,120 @@ const detailContent = {
 };
 
 const farmerRows = [
-  ['FRM10001', 'Ramesh Kumar', 'Sehore', '20 May 2025', 'Urea', '500 kg', 'Active'],
-  ['FRM10002', 'Sita Devi', 'Vidisha', '19 May 2025', 'DAP', '300 kg', 'Active'],
-  ['FRM10003', 'Mohan Lal', 'Raisen', '18 May 2025', 'Urea', '500 kg', 'Active'],
-  ['FRM10004', 'Shyam Singh', 'Hoshangabad', '17 May 2025', 'NPK 20:20:0:13', '250 kg', 'Inactive'],
-  ['FRM10005', 'Kamla Bai', 'Sehore', '15 May 2025', 'DAP', '300 kg', 'Active'],
-  ['FRM10006', 'Vijay Patel', 'Vidisha', '14 May 2025', 'Urea', '500 kg', 'Active'],
-  ['FRM10007', 'Radha Shankar', 'Raisen', '13 May 2025', 'NPK 20:20:0:13', '250 kg', 'Inactive'],
-  ['FRM10008', 'Gopal Das', 'Hoshangabad', '12 May 2025', 'Urea', '500 kg', 'Active'],
+  ['3421 5689 1047', 'Ramesh Patil', 'Sehore', '20 May 2025', 'Urea', '3 bags', 'Active'],
+  ['7814 2365 9082', 'Suresh Yadav', 'Sehore', '19 May 2025', 'DAP', '8 bags', 'Active'],
+  ['5490 8123 6675', 'Mahesh Sharma', 'Sehore', '18 May 2025', 'Potash', '12 bags', 'Active'],
+  ['2367 9045 1188', 'Ravi Kumar', 'Sehore', '17 May 2025', 'Urea', '2 bags', 'Active'],
+  ['8901 4567 2234', 'Ganesh More', 'Sehore', '15 May 2025', 'DAP', '15 bags', 'Inactive'],
+  ['4128 7750 9361', 'Amit Verma', 'Sehore', '14 May 2025', 'Urea', '5 bags', 'Active'],
+  ['6754 2198 4406', 'Prakash Jadhav', 'Sehore', '13 May 2025', 'Potash', '10 bags', 'Active'],
+  ['9276 3104 5821', 'Nitin Pawar', 'Sehore', '12 May 2025', 'DAP', '14 bags', 'Active'],
+  ['1845 7620 3397', 'Sunil Thakur', 'Sehore', '11 May 2025', 'Urea', '4 bags', 'Active'],
+  ['7032 9156 8740', 'Kiran Deshmukh', 'Sehore', '10 May 2025', 'Potash', '16 bags', 'Inactive'],
+  ['5186 4309 2257', 'Pooja Verma', 'Sehore', '09 May 2025', 'NPK 20:20:0:13', '250 kg', 'Active'],
+  ['2690 7441 6835', 'Hariram Meena', 'Sehore', '08 May 2025', 'DAP', '300 kg', 'Inactive'],
+  ['8305 1276 4908', 'Geeta Bai', 'Sehore', '07 May 2025', 'Urea', '500 kg', 'Active'],
+  ['4572 6089 3314', 'Nand Kishore', 'Sehore', '06 May 2025', 'NPK 20:20:0:13', '250 kg', 'Active'],
+  ['9168 3405 7723', 'Sunita Patel', 'Sehore', '05 May 2025', 'DAP', '300 kg', 'Active'],
+  ['3017 8542 6096', 'Babulal Ahirwar', 'Sehore', '04 May 2025', 'Urea', '500 kg', 'Inactive'],
+  ['6924 1187 5039', 'Meera Lodhi', 'Sehore', '03 May 2025', 'DAP', '300 kg', 'Active'],
+  ['1458 9076 2641', 'Dinesh Parmar', 'Sehore', '02 May 2025', 'Urea', '500 kg', 'Active'],
+  ['8740 2563 7195', 'Kavita Rajput', 'Sehore', '01 May 2025', 'NPK 20:20:0:13', '250 kg', 'Active'],
+  ['5209 6814 3372', 'Omprakash Sahu', 'Sehore', '30 Apr 2025', 'DAP', '300 kg', 'Inactive'],
 ];
+
+const farmerDetailsByAadhar = {
+  '3421 5689 1047': {
+    name: 'Ramesh Patil',
+    landSize: '1 acre',
+    cropType: 'Wheat',
+    fertilizerType: 'Urea',
+    monthlyLimit: '3 bags',
+    riskLevel: 'Low',
+    reason: 'Small land size and normal purchase activity.',
+  },
+  '7814 2365 9082': {
+    name: 'Suresh Yadav',
+    landSize: '3 acres',
+    cropType: 'Rice',
+    fertilizerType: 'DAP',
+    monthlyLimit: '8 bags',
+    riskLevel: 'Low',
+    reason: 'Purchase quantity is within allowed monthly limit.',
+  },
+  '5490 8123 6675': {
+    name: 'Mahesh Sharma',
+    landSize: '5 acres',
+    cropType: 'Cotton',
+    fertilizerType: 'Potash',
+    monthlyLimit: '12 bags',
+    riskLevel: 'Medium',
+    reason: 'Multiple fertilizer purchases within short duration.',
+  },
+  '2367 9045 1188': {
+    name: 'Ravi Kumar',
+    landSize: '0.5 acre',
+    cropType: 'Vegetables',
+    fertilizerType: 'Urea',
+    monthlyLimit: '2 bags',
+    riskLevel: 'Low',
+    reason: 'Purchase within limit and normal activity.',
+  },
+  '8901 4567 2234': {
+    name: 'Ganesh More',
+    landSize: '7 acres',
+    cropType: 'Sugarcane',
+    fertilizerType: 'DAP',
+    monthlyLimit: '15 bags',
+    riskLevel: 'High',
+    reason: 'Exceeded monthly fertilizer limit.',
+  },
+  '4128 7750 9361': {
+    name: 'Amit Verma',
+    landSize: '2 acres',
+    cropType: 'Wheat',
+    fertilizerType: 'Urea',
+    monthlyLimit: '5 bags',
+    riskLevel: 'Low',
+    reason: 'Normal fertilizer purchase pattern.',
+  },
+  '6754 2198 4406': {
+    name: 'Prakash Jadhav',
+    landSize: '4 acres',
+    cropType: 'Cotton',
+    fertilizerType: 'Potash',
+    monthlyLimit: '10 bags',
+    riskLevel: 'Medium',
+    reason: 'Frequent purchases detected.',
+  },
+  '9276 3104 5821': {
+    name: 'Nitin Pawar',
+    landSize: '6 acres',
+    cropType: 'Rice',
+    fertilizerType: 'DAP',
+    monthlyLimit: '14 bags',
+    riskLevel: 'Medium',
+    reason: 'High purchase frequency this month.',
+  },
+  '1845 7620 3397': {
+    name: 'Sunil Thakur',
+    landSize: '1.5 acres',
+    cropType: 'Vegetables',
+    fertilizerType: 'Urea',
+    monthlyLimit: '4 bags',
+    riskLevel: 'Low',
+    reason: 'Low purchase quantity and normal activity.',
+  },
+  '7032 9156 8740': {
+    name: 'Kiran Deshmukh',
+    landSize: '8 acres',
+    cropType: 'Sugarcane',
+    fertilizerType: 'Potash',
+    monthlyLimit: '16 bags',
+    riskLevel: 'High',
+    reason: 'Very high fertilizer purchase frequency.',
+  },
+};
 
 const previousRows = [
   ['DST10021', 'Sehore', 'Green Agro Center', 'Urea', '1,250 bags', '22 May 2025', 'Verified'],
@@ -431,31 +536,102 @@ function AlertsPage() {
 }
 
 function FarmerRecordsPage() {
+  const [selectedFarmer, setSelectedFarmer] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedDistrict, setSelectedDistrict] = useState('All Districts');
+  const [selectedStatus, setSelectedStatus] = useState('All Status');
+  const detailCardRef = useRef(null);
+
+  const filteredFarmerRows = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+
+    return farmerRows.filter((row) => {
+      const aadharNumber = row[0].replace(/\s/g, '');
+      const searchableText = `${row[0]} ${aadharNumber} ${row[1]}`.toLowerCase();
+      const compactSearchableText = searchableText.replace(/\s/g, '');
+      const compactSearch = normalizedSearch.replace(/\s/g, '');
+      const matchesSearch = !normalizedSearch || searchableText.includes(normalizedSearch) || compactSearchableText.includes(compactSearch);
+      const matchesDistrict = selectedDistrict === 'All Districts' || row[2] === selectedDistrict;
+      const matchesStatus = selectedStatus === 'All Status' || row[6] === selectedStatus;
+
+      return matchesSearch && matchesDistrict && matchesStatus;
+    });
+  }, [searchTerm, selectedDistrict, selectedStatus]);
+
   return (
     <section className="page-content">
       <PageTitle title="Farmer Records" subtitle="View and manage farmer details and transaction history." action="Export" />
       <div className="filter-row">
-        <input value="Search by farmer name, ID or phone..." readOnly />
-        <select value="All Districts" readOnly><option>All Districts</option></select>
-        <select value="All Status" readOnly><option>All Status</option></select>
+        <input
+          type="search"
+          value={searchTerm}
+          onChange={(event) => setSearchTerm(event.target.value)}
+          placeholder="Search by farmer name or Aadhaar number..."
+          aria-label="Search farmer records"
+        />
+        <select value={selectedDistrict} onChange={(event) => setSelectedDistrict(event.target.value)}>
+          <option>All Districts</option>
+          <option>Sehore</option>
+        </select>
+        <select value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)}>
+          <option>All Status</option>
+          <option>Active</option>
+          <option>Inactive</option>
+        </select>
         <button type="button" className="filter-button">Filters</button>
       </div>
       <div className="metric-grid">
         <MetricCard icon="user" label="Total Farmers" value="8,752" accent="teal" />
         <MetricCard icon="document" label="Total Transactions" value="18,540" accent="blue" />
-        <MetricCard icon="bag" label="Total Fertilizer Distributed" value="42,350" unit="MT" accent="purple" />
         <MetricCard icon="warning" label="Active Farmers" value="7,210" accent="orange" />
       </div>
+      {selectedFarmer && (
+        <section className="farmer-detail-card" ref={detailCardRef} aria-live="polite">
+          <div className="farmer-detail-card__header">
+            <div>
+              <p>Farmer Details</p>
+              <h3>{selectedFarmer.name}</h3>
+            </div>
+            <span className={`risk-pill risk-${selectedFarmer.riskLevel.toLowerCase()}`}>{selectedFarmer.riskLevel} Risk</span>
+          </div>
+          <div className="farmer-detail-grid">
+            <div><span>Land Size</span><strong>{selectedFarmer.landSize}</strong></div>
+            <div><span>Crop Type</span><strong>{selectedFarmer.cropType}</strong></div>
+            <div><span>Fertilizer Type</span><strong>{selectedFarmer.fertilizerType}</strong></div>
+            <div><span>Monthly Limit</span><strong>{selectedFarmer.monthlyLimit}</strong></div>
+          </div>
+          <div className="farmer-detail-reason">
+            <span>Reason</span>
+            <p>{selectedFarmer.reason}</p>
+          </div>
+        </section>
+      )}
       <DataTable
         columns={['Aadhar Card ID', 'Farmer Name', 'District', 'Last Transaction', 'Fertilizer Received', 'Total Received', 'Status', 'Action']}
-        rows={farmerRows.map((row) => [...row, 'View Details'])}
-        footer="Showing 1 to 8 of 8,752 records"
+        rows={filteredFarmerRows.map((row) => [...row, 'View Details'])}
+        footer={`Showing ${filteredFarmerRows.length} of 20 records`}
+        onAction={(row) => {
+          const detail = farmerDetailsByAadhar[row[0]] || {
+            name: row[1],
+            landSize: '2 acres',
+            cropType: 'Wheat',
+            fertilizerType: row[4],
+            monthlyLimit: row[5],
+            riskLevel: row[6] === 'Active' ? 'Low' : 'Medium',
+            reason: 'Hardcoded demo details for this farmer record.',
+          };
+
+          setSelectedFarmer(detail);
+          setTimeout(() => {
+            detailCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }, 0);
+        }}
       />
     </section>
   );
 }
 
-function DataTable({ columns, rows, footer }) {
+function DataTable({ columns, rows, footer, onAction }) {
   return (
     <div className="table-panel">
       <table>
@@ -474,7 +650,7 @@ function DataTable({ columns, rows, footer }) {
                 return (
                   <td key={`${cell}-${index}`}>
                     {isStatus && <span className={`status-pill ${cell === 'Active' || cell === 'Verified' || cell === 'Resolved' ? 'is-active' : 'is-warning'}`}>{cell}</span>}
-                    {isAction && <button type="button" className="table-action">{cell}</button>}
+                    {isAction && <button type="button" className="table-action" onClick={() => onAction?.(row)}>{cell}</button>}
                     {!isStatus && !isAction && cell}
                   </td>
                 );
