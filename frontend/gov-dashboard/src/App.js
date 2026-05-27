@@ -1,5 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import './App.css';
+
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
@@ -94,8 +96,8 @@ const detailContent = {
     body: 'Track distribution, review recent activity, and jump into the main government workflows from one place.',
   },
   add: {
-    title: 'Add Distribution Entry',
-    body: 'Create a fresh fertilizer distribution record with location, stock, dealer, and farmer allocation details.',
+    title: 'Add Batch',
+    body: 'Open the batch creation flow and generate bag IDs from a single centered add action.',
   },
   records: {
     title: 'Previous Distribution Records',
@@ -144,13 +146,6 @@ const farmerRows = [
   ['FRM10006', 'Vijay Patel', 'Vidisha', '14 May 2025', 'Urea', '500 kg', 'Active'],
   ['FRM10007', 'Radha Shankar', 'Raisen', '13 May 2025', 'NPK 20:20:0:13', '250 kg', 'Inactive'],
   ['FRM10008', 'Gopal Das', 'Hoshangabad', '12 May 2025', 'Urea', '500 kg', 'Active'],
-];
-
-const previousRows = [
-  ['DST10021', 'Sehore', 'Green Agro Center', 'Urea', '1,250 bags', '22 May 2025', 'Verified'],
-  ['DST10022', 'Vidisha', 'Kisan Seva Store', 'DAP', '840 bags', '21 May 2025', 'Verified'],
-  ['DST10023', 'Raisen', 'Madhya Fertilizer Depot', 'NPK', '610 bags', '20 May 2025', 'Pending'],
-  ['DST10024', 'Hoshangabad', 'Krishi Supply Hub', 'Urea', '1,100 bags', '19 May 2025', 'Verified'],
 ];
 
 const alertRows = [
@@ -323,14 +318,18 @@ function DashboardPage({ activeSection, setActiveSection }) {
   );
 }
 
-function PageTitle({ title, subtitle, action }) {
+function PageTitle({ title, subtitle, action, onAction }) {
   return (
     <section className="page-title">
       <div>
         <h2>{title}</h2>
         <p>{subtitle}</p>
       </div>
-      {action && <button type="button" className="outline-action">{action}</button>}
+      {action && (
+        <button type="button" className="outline-action" onClick={onAction}>
+          {action}
+        </button>
+      )}
     </section>
   );
 }
@@ -351,35 +350,417 @@ function MetricCard({ icon, label, value, unit, accent }) {
 }
 
 function AddPage() {
+  const [showBatchForm, setShowBatchForm] = useState(false);
+  const [generatedBagIds, setGeneratedBagIds] = useState([]);
+  const [generatedQRCodes, setGeneratedQRCodes] = useState([]);
+  const [saveState, setSaveState] = useState({ status: 'idle', message: '' });
+  const [batchForm, setBatchForm] = useState({
+    batchNumber: '',
+    numberOfBags: '',
+    productName: '',
+    productPrice: '',
+    productExpiry: '',
+    manufacturer: '',
+    bagWeight: '',
+  });
+
+  const handleInputChange = (event) => {
+    const { name, value } = event.target;
+
+    if (saveState.status !== 'idle') {
+      setSaveState({ status: 'idle', message: '' });
+    }
+
+    if (generatedQRCodes.length > 0) {
+      setGeneratedQRCodes([]);
+    }
+
+    setBatchForm((currentForm) => ({
+      ...currentForm,
+      [name]: value,
+    }));
+  };
+
+  const handleGenerateBagIds = async () => {
+    const bagCount = Number.parseInt(batchForm.numberOfBags, 10);
+
+    if (!Number.isInteger(bagCount) || bagCount <= 0) {
+      setGeneratedBagIds([]);
+      setGeneratedQRCodes([]);
+      setSaveState({ status: 'error', message: 'Enter a valid number of bags before generating.' });
+      return;
+    }
+
+    const batchPrefix = (batchForm.batchNumber || 'BATCH')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+
+    const safePrefix = batchPrefix || 'BATCH';
+    const bagIds = Array.from(
+      { length: bagCount },
+      (_, index) => `${safePrefix}-BAG-${String(index + 1).padStart(3, '0')}`
+    );
+
+    setGeneratedBagIds(bagIds);
+
+    try {
+      setSaveState({ status: 'saving', message: 'Generating QR codes and saving batch...' });
+
+      const qrResponse = await fetch(`${API_BASE_URL}/api/qrcodes`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          batchNumber: batchForm.batchNumber,
+          productName: batchForm.productName,
+          manufacturer: batchForm.manufacturer,
+          bagWeight: batchForm.bagWeight,
+          bagIds,
+        }),
+      });
+
+      const qrResult = await qrResponse.json();
+
+      if (!qrResponse.ok) {
+        throw new Error(qrResult.error || 'Unable to generate QR codes.');
+      }
+
+      const qrCodes = qrResult.qrCodes || [];
+      setGeneratedQRCodes(qrCodes);
+
+      const batchPayload = {
+        batchNumber: batchForm.batchNumber,
+        numberOfBags: bagCount,
+        productName: batchForm.productName,
+        productPrice: batchForm.productPrice,
+        productExpiry: batchForm.productExpiry,
+        manufacturer: batchForm.manufacturer,
+        bagWeight: batchForm.bagWeight,
+        bagIds,
+        qrCodes,
+      };
+
+      const saveResponse = await fetch(`${API_BASE_URL}/api/batches`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(batchPayload),
+      });
+
+      const saveResult = await saveResponse.json();
+
+      if (!saveResponse.ok) {
+        throw new Error(saveResult.error || 'Unable to save batch.');
+      }
+      setSaveState({ status: 'success', message: 'Batch saved and QR codes generated successfully.' });
+    } catch (error) {
+      setSaveState({
+        status: 'error',
+        message: error.message || 'Bag IDs were generated, but saving or QR generation failed.',
+      });
+    }
+  };
+
+  if (!showBatchForm) {
+    return (
+      <section className="page-content add-launch-page">
+        <PageTitle
+          title="Add Batch"
+          subtitle="Use the single add button below to open the batch creation page."
+        />
+        <div className="add-launch-panel">
+          <button
+            type="button"
+            className="add-launch-button"
+            onClick={() => setShowBatchForm(true)}
+            aria-label="Open add batch page"
+          >
+            <span>+</span>
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="page-content">
-      <PageTitle title="Add Distribution Record" subtitle="Create a new fertilizer distribution entry for district, dealer, crop and stock details." />
-      <div className="form-panel">
-        <label>District<input value="Sehore" readOnly /></label>
-        <label>Dealer<input value="Green Agro Center" readOnly /></label>
-        <label>Fertilizer Type<input value="Urea" readOnly /></label>
-        <label>Quantity<input value="500 bags" readOnly /></label>
-        <label>Batch ID<input value="BCH-2025-1028" readOnly /></label>
-        <label>Distribution Date<input value="22 May 2025" readOnly /></label>
-        <button type="button" className="primary-action">Submit Record</button>
+      <PageTitle
+        title="Add Batch"
+        subtitle="Fill batch details, then generate one bag ID for every bag entered."
+        action="Back"
+        onAction={() => setShowBatchForm(false)}
+      />
+
+      <div className="form-panel batch-form-panel">
+        <label>
+          Batch Number
+          <input
+            name="batchNumber"
+            value={batchForm.batchNumber}
+            onChange={handleInputChange}
+            placeholder="Enter batch number"
+          />
+        </label>
+        <label>
+          No of Bags
+          <input
+            name="numberOfBags"
+            type="number"
+            min="1"
+            value={batchForm.numberOfBags}
+            onChange={handleInputChange}
+            placeholder="Enter number of bags"
+          />
+        </label>
+        <label>
+          Product Name
+          <input
+            name="productName"
+            value={batchForm.productName}
+            onChange={handleInputChange}
+            placeholder="Enter product name"
+          />
+        </label>
+        <label>
+          Product Price
+          <input
+            name="productPrice"
+            type="number"
+            min="0"
+            value={batchForm.productPrice}
+            onChange={handleInputChange}
+            placeholder="Enter product price"
+          />
+        </label>
+        <label>
+          Product Expiry
+          <input
+            name="productExpiry"
+            type="date"
+            value={batchForm.productExpiry}
+            onChange={handleInputChange}
+          />
+        </label>
+        <label>
+          Manufacturer
+          <input
+            name="manufacturer"
+            value={batchForm.manufacturer}
+            onChange={handleInputChange}
+            placeholder="Enter manufacturer name"
+          />
+        </label>
+        <label className="full-width">
+          Weight of Each Bag
+          <input
+            name="bagWeight"
+            value={batchForm.bagWeight}
+            onChange={handleInputChange}
+            placeholder="Example: 50 kg"
+          />
+        </label>
+
+        <div className="batch-form-actions full-width">
+          <button type="button" className="outline-action" onClick={() => setShowBatchForm(false)}>
+            Back
+          </button>
+          <button type="button" className="primary-action" onClick={handleGenerateBagIds}>
+            Generate
+          </button>
+        </div>
       </div>
+
+      {generatedBagIds.length > 0 && (
+        <section className="generated-panel">
+          <div className="generated-panel__header">
+            <h3>Generated Bag IDs</h3>
+            <p>{generatedBagIds.length} bag IDs created for batch {batchForm.batchNumber || 'BATCH'}.</p>
+          </div>
+          <div className="generated-bag-grid">
+            {generatedBagIds.map((bagId) => (
+              <article key={bagId} className="generated-bag-card">
+                <strong>{bagId}</strong>
+                <span>{batchForm.productName || 'Product name pending'}</span>
+                <small>{batchForm.bagWeight || 'Weight not set'}</small>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {generatedQRCodes.length > 0 && (
+        <section className="generated-panel qr-panel">
+          <div className="generated-panel__header">
+            <h3>Bag QR Codes</h3>
+            <p>Each bag now has its own QR code linked to the generated bag ID.</p>
+          </div>
+          <div className="generated-bag-grid qr-grid">
+            {generatedQRCodes.map((qrCode) => (
+              <article key={qrCode.bagId} className="generated-bag-card qr-card">
+                <img src={qrCode.qrCodeDataUrl} alt={`QR for ${qrCode.bagId}`} className="qr-image" />
+                <strong>{qrCode.bagId}</strong>
+                <a href={qrCode.qrCodeDataUrl} download={`${qrCode.bagId}.png`} className="table-action qr-download">
+                  Download QR
+                </a>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {saveState.status !== 'idle' && (
+        <p className={`form-hint form-hint--${saveState.status}`}>{saveState.message}</p>
+      )}
+
+      {generatedBagIds.length === 0 && batchForm.numberOfBags && (
+        <p className="form-hint">Enter a valid number of bags and click Generate to create bag IDs.</p>
+      )}
     </section>
   );
 }
 
+function formatDate(value) {
+  if (!value) {
+    return 'Not set';
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(date);
+}
+
 function PreviousPage() {
+  const [batches, setBatches] = useState([]);
+  const [selectedBatch, setSelectedBatch] = useState(null);
+  const [historyState, setHistoryState] = useState({
+    status: 'loading',
+    message: 'Loading saved batches...',
+  });
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadBatches() {
+      try {
+        setHistoryState({ status: 'loading', message: 'Loading saved batches...' });
+
+        const response = await fetch(`${API_BASE_URL}/api/batches`);
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Unable to load batches.');
+        }
+
+        if (ignore) {
+          return;
+        }
+
+        const loadedBatches = result.batches || [];
+        setBatches(loadedBatches);
+        setSelectedBatch(loadedBatches[0] || null);
+        setHistoryState({
+          status: 'success',
+          message: loadedBatches.length ? '' : 'No batches have been created yet.',
+        });
+      } catch (error) {
+        if (!ignore) {
+          setHistoryState({
+            status: 'error',
+            message: error.message || 'Unable to load batches.',
+          });
+        }
+      }
+    }
+
+    loadBatches();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  const batchRows = batches.map((batch) => ([
+    batch.batch_number,
+    batch.product_name || 'Not set',
+    `${batch.number_of_bags} bags`,
+    batch.manufacturer || 'Not set',
+    formatDate(batch.product_expiry),
+    formatDate(batch.created_at),
+    'View Details',
+  ]));
+
   return (
     <section className="page-content">
-      <PageTitle title="Previous Distribution Records" subtitle="View and manage previously added distribution records." action="Export" />
-      <div className="filter-row">
-        <input value="Search by record, district or dealer..." readOnly />
-        <select value="All Districts" readOnly><option>All Districts</option></select>
-        <select value="All Fertilizers" readOnly><option>All Fertilizers</option></select>
-      </div>
-      <DataTable
-        columns={['Record ID', 'District', 'Dealer', 'Fertilizer', 'Quantity', 'Date', 'Status']}
-        rows={previousRows}
-      />
+      <PageTitle title="Previous Batches" subtitle="View every created batch and open full batch details." />
+      {historyState.status !== 'success' && (
+        <p className={`form-hint form-hint--${historyState.status === 'loading' ? 'saving' : 'error'}`}>
+          {historyState.message}
+        </p>
+      )}
+      {historyState.status === 'success' && batches.length > 0 && (
+        <div className="history-layout">
+          <DataTable
+            columns={['Batch Number', 'Product Name', 'No of Bags', 'Manufacturer', 'Expiry', 'Created On', 'Action']}
+            rows={batchRows}
+            onActionClick={(rowIndex) => setSelectedBatch(batches[rowIndex])}
+          />
+          {selectedBatch && (
+            <section className="batch-detail-panel">
+              <div className="batch-detail-panel__header">
+                <h3>{selectedBatch.batch_number}</h3>
+                <p>Batch details, bag IDs, and saved QR codes.</p>
+              </div>
+              <div className="batch-detail-grid">
+                <div><span>Product Name</span><strong>{selectedBatch.product_name || 'Not set'}</strong></div>
+                <div><span>No of Bags</span><strong>{selectedBatch.number_of_bags}</strong></div>
+                <div><span>Product Price</span><strong>{selectedBatch.product_price || 'Not set'}</strong></div>
+                <div><span>Product Expiry</span><strong>{formatDate(selectedBatch.product_expiry)}</strong></div>
+                <div><span>Manufacturer</span><strong>{selectedBatch.manufacturer || 'Not set'}</strong></div>
+                <div><span>Weight of Each Bag</span><strong>{selectedBatch.bag_weight || 'Not set'}</strong></div>
+                <div><span>Created On</span><strong>{formatDate(selectedBatch.created_at)}</strong></div>
+              </div>
+
+              <div className="batch-subsection">
+                <h4>Bag IDs</h4>
+                <div className="detail-chip-grid">
+                  {(selectedBatch.bag_ids || []).map((bagId) => (
+                    <span key={bagId} className="detail-chip">{bagId}</span>
+                  ))}
+                </div>
+              </div>
+
+              {!!selectedBatch.qr_codes?.length && (
+                <div className="batch-subsection">
+                  <h4>Saved QR Codes</h4>
+                  <div className="generated-bag-grid qr-grid">
+                    {selectedBatch.qr_codes.map((qrCode) => (
+                      <article key={qrCode.bagId} className="generated-bag-card qr-card">
+                        <img src={qrCode.qrCodeDataUrl} alt={`QR for ${qrCode.bagId}`} className="qr-image" />
+                        <strong>{qrCode.bagId}</strong>
+                        <a href={qrCode.qrCodeDataUrl} download={`${qrCode.bagId}.png`} className="table-action qr-download">
+                          Download QR
+                        </a>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+        </div>
+      )}
     </section>
   );
 }
@@ -455,7 +836,7 @@ function FarmerRecordsPage() {
   );
 }
 
-function DataTable({ columns, rows, footer }) {
+function DataTable({ columns, rows, footer, onActionClick }) {
   return (
     <div className="table-panel">
       <table>
@@ -465,7 +846,7 @@ function DataTable({ columns, rows, footer }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {rows.map((row, rowIndex) => (
             <tr key={row.join('-')}>
               {row.map((cell, index) => {
                 const isStatus = columns[index] === 'Status';
@@ -474,7 +855,7 @@ function DataTable({ columns, rows, footer }) {
                 return (
                   <td key={`${cell}-${index}`}>
                     {isStatus && <span className={`status-pill ${cell === 'Active' || cell === 'Verified' || cell === 'Resolved' ? 'is-active' : 'is-warning'}`}>{cell}</span>}
-                    {isAction && <button type="button" className="table-action">{cell}</button>}
+                    {isAction && <button type="button" className="table-action" onClick={() => onActionClick?.(rowIndex)}>{cell}</button>}
                     {!isStatus && !isAction && cell}
                   </td>
                 );
@@ -487,13 +868,13 @@ function DataTable({ columns, rows, footer }) {
         <div className="table-footer">
           <span>{footer}</span>
           <div className="pagination">
-            <button type="button">‹</button>
+            <button type="button">&lt;</button>
             <button type="button" className="is-current">1</button>
             <button type="button">2</button>
             <button type="button">3</button>
             <span>...</span>
             <button type="button">876</button>
-            <button type="button">›</button>
+            <button type="button">&gt;</button>
           </div>
         </div>
       )}
@@ -584,7 +965,7 @@ function App() {
           </section>
         )}
 
-        <footer className="footer-note">© 2025 Government of India. All rights reserved.</footer>
+        <footer className="footer-note">(c) 2025 Government of India. All rights reserved.</footer>
       </main>
     </div>
   );
