@@ -4,6 +4,15 @@ import './App.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
 
+function parseDecodedPayload(decodedText) {
+  try {
+    const parsed = JSON.parse(decodedText);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (error) {
+    return {};
+  }
+}
+
 const translations = {
   en: {
     brandTitle: 'Dealer',
@@ -225,7 +234,53 @@ function ScanIcon() {
   );
 }
 
-function ScannerPage() {
+function resizeImage(file, maxDimension) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error('Canvas to Blob failed'));
+            return;
+          }
+          const resizedFile = new File([blob], file.name, {
+            type: file.type || 'image/jpeg',
+            lastModified: Date.now(),
+          });
+          resolve(resizedFile);
+        }, file.type || 'image/jpeg');
+      };
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function ScannerPage(props) {
+  const { dealerDetails, loadScanRecords } = props;
   const scannerRef = useRef(null);
   const fileInputRef = useRef(null);
   const scanRequestRef = useRef(false);
@@ -289,58 +344,100 @@ function ScannerPage() {
     setIsScanning(false);
   }
 
-  function getBagIdFromScan(decodedText) {
+
+
+  async function scanFileWithNativeDetector(file) {
+    if (!window.BarcodeDetector || !window.createImageBitmap) {
+      throw new Error('Native QR detector is not available in this browser.');
+    }
+
+    const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+    const imageBitmap = await window.createImageBitmap(file);
+
     try {
-      const parsedValue = JSON.parse(decodedText);
-      return parsedValue.bagId || parsedValue.bag_id || parsedValue.id || '';
-    } catch {
-      return decodedText;
+      const codes = await detector.detect(imageBitmap);
+      const qrCode = codes.find((code) => code.rawValue);
+
+      if (!qrCode) {
+        throw new Error('No QR code could be read from this image.');
+      }
+
+      return qrCode.rawValue;
+    } finally {
+      imageBitmap.close?.();
     }
   }
 
   async function handleScanSuccess(decodedText) {
-    if (scanRequestRef.current) return;
+  if (scanRequestRef.current) return;
 
-    scanRequestRef.current = true;
-    setScanResult(decodedText);
-    setScanUpdate(null);
-    setScanError('');
-    setScanStatus('Updating bag status');
+  scanRequestRef.current = true;
+  setScanResult(decodedText);
+  setScanUpdate(null);
+  setScanError('');
+  setScanStatus('Updating bag status');
 
-    try {
-      if (scannerRef.current?.isScanning) {
-        await stopScanner();
-      }
-
-      const bagId = getBagIdFromScan(decodedText);
-
-      if (!bagId) {
-        throw new Error('The scanned QR code does not contain a bag ID.');
-      }
-
-      const response = await fetch(`${API_BASE_URL}/api/batches/scan`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ bagId, scannedBy: 'dealer' }),
-      });
-
-      const result = await readJsonResponse(response);
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Unable to update bag status.');
-      }
-
-      setScanUpdate(result);
-      setScanStatus(result.changed ? 'Marked received' : 'Bag received already');
-    } catch (error) {
-      setScanStatus('Scan update failed');
-      setScanError(error.message || 'Unable to update bag status.');
-    } finally {
-      scanRequestRef.current = false;
+  try {
+    if (scannerRef.current?.isScanning) {
+      await stopScanner();
     }
+
+    // Try to parse JSON payload
+    const parsed = parseDecodedPayload(decodedText);
+    const bagId = parsed.bagId || parsed.bag_id || '';
+    const batchNumber = parsed.batchNumber || parsed.batch_number || '';
+
+    let body;
+    if (batchNumber) {
+      // Batch QR scan
+      body = {
+        batchNumber,
+        scannedBy: 'dealer',
+        dealer_name: dealerDetails?.name || null,
+        location: dealerDetails?.address || null,
+      };
+    } else if (bagId) {
+      // Individual bag scan
+      body = {
+        bagId,
+        scannedBy: 'dealer',
+        dealer_name: dealerDetails?.name || null,
+        location: dealerDetails?.address || null,
+      };
+    } else {
+      throw new Error('The scanned QR code does not contain a bag ID or batch number.');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/batches/scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const result = await readJsonResponse(response);
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Unable to update status.');
+    }
+
+    setScanUpdate(result);
+    if (body.batchNumber) {
+      setScanStatus(result.changed ? 'Marked received' : 'Batch already received');
+    } else {
+      setScanStatus(result.changed ? 'Marked received' : 'Bag received already');
+    }
+
+    // The backend automatically logs the scan to dealer_scan_records now.
+    // Refresh local scan records so View Previous reflects the latest data.
+    loadScanRecords();
+
+  } catch (error) {
+    setScanStatus('Scan update failed');
+    setScanError(error.message || 'Unable to update status.');
+  } finally {
+    scanRequestRef.current = false;
   }
+}
 
   async function startScanner() {
     setScanError('');
@@ -374,6 +471,8 @@ function ScannerPage() {
     }
   }
 
+  
+
   async function handleFileScan(event) {
     const [file] = event.target.files || [];
     if (!file) return;
@@ -388,7 +487,49 @@ function ScannerPage() {
         await stopScanner();
       }
 
-      const decodedText = await scanner.scanFile(file, true);
+      let decodedText = null;
+      let scanErrorOccurred = null;
+
+      // 1. Try scanning original file
+      try {
+        decodedText = await scanner.scanFile(file, true);
+      } catch (err1) {
+        scanErrorOccurred = err1;
+      }
+
+      // 2. Try scanning at 800px resize
+      if (!decodedText) {
+        try {
+          const resized800 = await resizeImage(file, 800);
+          decodedText = await scanner.scanFile(resized800, true);
+        } catch (err2) {
+          scanErrorOccurred = err2;
+        }
+      }
+
+      // 3. Try scanning at 400px resize
+      if (!decodedText) {
+        try {
+          const resized400 = await resizeImage(file, 400);
+          decodedText = await scanner.scanFile(resized400, true);
+        } catch (err3) {
+          scanErrorOccurred = err3;
+        }
+      }
+
+      // 4. Try scanning with native BarcodeDetector if supported
+      if (!decodedText && window.BarcodeDetector && window.createImageBitmap) {
+        try {
+          decodedText = await scanFileWithNativeDetector(file);
+        } catch (err4) {
+          scanErrorOccurred = err4;
+        }
+      }
+
+      if (!decodedText) {
+        throw scanErrorOccurred || new Error('No QR code could be read from this image.');
+      }
+
       await handleScanSuccess(decodedText);
     } catch (error) {
       setScanStatus('No QR found');
@@ -514,18 +655,11 @@ function App() {
   const [farmerData, setFarmerData] = useState(null);
   const [dealerDetails, setDealerDetails] = useState(dealerDetailsByLanguage.en);
   const [isEditingDealer, setIsEditingDealer] = useState(false);
-  const [scanMode, setScanMode] = useState('camera');
-  const [scannerActive, setScannerActive] = useState(false);
-  const [scanError, setScanError] = useState('');
-  const [scannedText, setScannedText] = useState('');
-  const [scannedBatch, setScannedBatch] = useState(null);
-  const [scanSaveStatus, setScanSaveStatus] = useState('');
   const [scanRecords, setScanRecords] = useState([]);
   const [recordsStatus, setRecordsStatus] = useState({
     status: 'idle',
     message: '',
   });
-  const html5QrCodeRef = useRef(null);
   const texts = translations[language];
 
   const digitMap = {
@@ -604,54 +738,11 @@ function App() {
     setDealerDetails((prev) => ({ ...prev, [field]: value }));
   };
 
-  const clearScanResult = () => {
-    setScannedText('');
-    setScannedBatch(null);
-    setScanError('');
-    setScanSaveStatus('');
-  };
-
-  const parseDecodedPayload = (decodedText) => {
-    try {
-      const parsed = JSON.parse(decodedText);
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    } catch (error) {
-      return {};
-    }
-  };
-
-  const fetchBatchDetails = async (decodedText) => {
-    try {
-      const decodedPayload = parseDecodedPayload(decodedText);
-      const res = await fetch(`${API_BASE_URL}/api/batches`);
-      if (!res.ok) {
-        throw new Error(`Backend returned ${res.status}`);
-      }
-      const payload = await res.json();
-      const batches = payload.batches || [];
-      const decodedBagId = decodedPayload.bagId || decodedText;
-      const decodedBatchNumber = decodedPayload.batchNumber || decodedText;
-
-      return batches.find((b) =>
-        b.batch_number === decodedBatchNumber ||
-        (Array.isArray(b.bag_ids) && b.bag_ids.includes(decodedBagId)) ||
-        (Array.isArray(b.qr_codes) && b.qr_codes.some((qrCode) =>
-          qrCode?.bagId === decodedBagId ||
-          qrCode?.payload === decodedText ||
-          qrCode === decodedText
-        ))
-      ) || null;
-    } catch (error) {
-      console.warn('Could not fetch batches:', error.message || error);
-      return null;
-    }
-  };
-
   const loadScanRecords = async () => {
     try {
       setRecordsStatus({ status: 'loading', message: 'Loading previous scan records...' });
       const response = await fetch(`${API_BASE_URL}/api/scan-records`);
-      const payload = await response.json();
+      const payload = await readJsonResponse(response);
 
       if (!response.ok) {
         throw new Error(payload.error || 'Unable to load previous scan records.');
@@ -671,9 +762,8 @@ function App() {
     }
   };
 
-  const saveScanRecord = async (decodedText, batch) => {
+  async function saveScanRecord(decodedText, batch, extraInfo = {}) {
     try {
-      setScanSaveStatus('Saving scan record...');
       const decodedPayload = parseDecodedPayload(decodedText);
       const response = await fetch(`${API_BASE_URL}/api/scan-records`, {
         method: 'POST',
@@ -682,6 +772,10 @@ function App() {
           decodedText,
           decodedPayload,
           batch,
+          dealer_id: dealerDetails?.id || null,
+          dealer_name: dealerDetails?.name || null,
+          location: dealerDetails?.address || null,
+          ...extraInfo,
         }),
       });
       const payload = await response.json();
@@ -690,108 +784,11 @@ function App() {
         throw new Error(payload.error || 'Unable to save scan record.');
       }
 
-      setScanSaveStatus('Scan record saved.');
       setScanRecords((records) => [payload.scanRecord, ...records]);
     } catch (error) {
-      setScanSaveStatus(error.message || 'Scan result shown, but saving failed.');
+      console.error(error.message || 'Scan record saving failed.');
     }
-  };
-
-  const stopScanner = async () => {
-    const qr = html5QrCodeRef.current;
-    if (qr) {
-      try {
-        await qr.stop();
-      } catch (error) {
-        // ignore stop failures
-      }
-      try {
-        qr.clear();
-      } catch (error) {
-        // ignore clear failures
-      }
-      html5QrCodeRef.current = null;
-    }
-    setScannerActive(false);
-  };
-
-  const handleDecodedValue = async (decodedText) => {
-    setScannedText(decodedText);
-    const batch = await fetchBatchDetails(decodedText);
-    setScannedBatch(batch);
-    await saveScanRecord(decodedText, batch);
-    if (scanMode === 'camera') {
-      await stopScanner();
-    }
-  };
-
-  const startCameraScanner = async () => {
-    clearScanResult();
-    setScanError('');
-    if (scannerActive) {
-      return;
-    }
-
-    try {
-      const { Html5Qrcode } = await import('html5-qrcode');
-      const qrRegionId = 'qr-reader';
-      const html5QrCode = new Html5Qrcode(qrRegionId);
-      html5QrCodeRef.current = html5QrCode;
-
-      const config = { fps: 10, qrbox: { width: 250, height: 250 } };
-
-      const qrSuccess = async (decodedText) => {
-        await handleDecodedValue(decodedText);
-      };
-
-      const qrFailure = () => {
-        // ignore occasional failed frames
-      };
-
-      await html5QrCode.start({ facingMode: 'environment' }, config, qrSuccess, qrFailure);
-      setScannerActive(true);
-    } catch (error) {
-      setScanError(`Camera scanner failed: ${error?.message || error}`);
-      console.error('Camera scanner error:', error);
-      setScannerActive(false);
-    }
-  };
-
-  const handleUploadFile = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    clearScanResult();
-    setScanError('');
-
-    try {
-      const { Html5Qrcode } = await import('html5-qrcode');
-      let html5QrCode = html5QrCodeRef.current;
-      if (!html5QrCode) {
-        html5QrCode = new Html5Qrcode('qr-reader');
-        html5QrCodeRef.current = html5QrCode;
-      }
-
-      const result = await html5QrCode.scanFileV2(file, true);
-      const decodedText = result?.decodedText || (Array.isArray(result) ? result[0]?.decodedText : null);
-
-      if (decodedText) {
-        await handleDecodedValue(decodedText);
-      } else {
-        setScanError('No QR code found in the uploaded image.');
-      }
-    } catch (error) {
-      setScanError(`Upload scan failed: ${error?.message || error}`);
-      console.error('Upload scan error:', error);
-    } finally {
-      event.target.value = '';
-    }
-  };
-
-  useEffect(() => {
-    if (currentPage !== 'scan') {
-      stopScanner();
-    }
-  }, [currentPage]);
+  }
 
   useEffect(() => {
     if (currentPage === 'previous') {
@@ -956,7 +953,7 @@ function App() {
                 <p className="subtitle">{texts.scanBatchSubtitle}</p>
               </div>
             </header>
-            <ScannerPage />
+            <ScannerPage dealerDetails={dealerDetails} loadScanRecords={loadScanRecords} />
           </>
         )}
 

@@ -116,7 +116,7 @@ async function scanBatchBag(req, res) {
       // Dealer batch scan
       const { data: batches, error: findError } = await supabase
         .from(batchesTable)
-        .select('id, batch_number, qr_codes')
+        .select('*')
         .eq('batch_number', batchNumber);
 
       if (findError) {
@@ -128,47 +128,123 @@ async function scanBatchBag(req, res) {
         return res.status(404).json({ error: `No batch found for Batch Number ${batchNumber}.` });
       }
 
-      if (scannedBy !== 'dealer') {
-        return res.status(400).json({ error: 'Only dealer users can scan a batch for receipt.' });
-      }
+      if (scannedBy === 'gov') {
+        const qrCodes = batch.qr_codes || [];
+        const allSentOrReceived = qrCodes.every(qr => qr && (qr.status === 'sent' || qr.status === 'received'));
+        if (allSentOrReceived) {
+          return res.status(200).json({
+            batchNumber: batch.batch_number,
+            status: 'sent',
+            changed: false,
+            message: 'Batch already sent.',
+          });
+        }
 
-      const qrCodes = batch.qr_codes || [];
-
-      // If any bag status is null, cannot receive
-      const hasNull = qrCodes.some(qr => qr && qr.status === null);
-      if (hasNull) {
-        return res.status(400).json({ error: 'Batch contains bags with null status; cannot receive before sent.' });
-      }
-
-      const allReceived = qrCodes.every(qr => qr && qr.status === 'received');
-      if (allReceived) {
-        return res.status(200).json({
-          batchNumber: batch.batch_number,
-          status: 'received',
-          changed: false,
-          message: 'Batch already received.',
+        let changed = false;
+        const updatedQrCodes = qrCodes.map(qr => {
+          if (qr && qr.status === null) {
+            changed = true;
+            return { ...qr, status: 'sent' };
+          }
+          return qr;
         });
-      }
 
-      // Update all bags with status 'sent' to 'received'
-      let changed = false;
-      const updatedQrCodes = qrCodes.map(qr => {
-        if (qr && qr.status === 'sent') {
-          changed = true;
-          return { ...qr, status: 'received' };
+        if (changed) {
+          const { error: updateError } = await supabase
+            .from(batchesTable)
+            .update({ qr_codes: updatedQrCodes })
+            .eq('id', batch.id);
+          if (updateError) {
+            return res.status(500).json({ error: updateError.message });
+          }
         }
-        return qr;
-      });
 
-      if (changed) {
-        const { error: updateError } = await supabase
-          .from(batchesTable)
-          .update({ qr_codes: updatedQrCodes })
-          .eq('id', batch.id);
-        if (updateError) {
-          return res.status(500).json({ error: updateError.message });
+        return res.status(200).json({
+          batchId: batch.id,
+          batchNumber: batch.batch_number,
+          number_of_bags: batch.qr_codes ? batch.qr_codes.length : null,
+          status: 'sent',
+          changed,
+          message: 'All bags in the batch have been marked as sent.',
+        });
+      } else {
+        const qrCodes = batch.qr_codes || [];
+
+        // If any bag status is null, cannot receive
+        const hasNull = qrCodes.some(qr => qr && qr.status === null);
+        if (hasNull) {
+          return res.status(400).json({ error: 'Batch contains bags with null status; cannot receive before sent.' });
         }
-      }
+
+        const allReceived = qrCodes.every(qr => qr && qr.status === 'received');
+        if (allReceived) {
+          // Still save scan record for the dealer
+          await supabase
+            .from('dealer_scan_records')
+            .insert([{
+              decoded_text: JSON.stringify({ batchNumber: batch.batch_number }),
+              decoded_payload: { batchNumber: batch.batch_number },
+              bag_id: null,
+              batch_number: batch.batch_number,
+              product_name: batch.product_name || null,
+              number_of_bags: batch.qr_codes ? batch.qr_codes.length : null,
+              manufacturer: batch.manufacturer || null,
+              bag_weight: batch.bag_weight || null,
+              matched_batch_id: batch.id,
+              dealer_name: req.body.dealer_name || null,
+              location: req.body.location || null,
+              status: 'received',
+              changed: false,
+            }]);
+
+          return res.status(200).json({
+            batchNumber: batch.batch_number,
+            status: 'received',
+            changed: false,
+            message: 'Batch already received.',
+          });
+        }
+
+        // Update all bags with status 'sent' to 'received'
+        let changed = false;
+        const updatedQrCodes = qrCodes.map(qr => {
+          if (qr && qr.status === 'sent') {
+            changed = true;
+            return { ...qr, status: 'received' };
+          }
+          return qr;
+        });
+
+        if (changed) {
+          const { error: updateError } = await supabase
+            .from(batchesTable)
+            .update({ qr_codes: updatedQrCodes })
+            .eq('id', batch.id);
+          if (updateError) {
+            return res.status(500).json({ error: updateError.message });
+          }
+        }
+
+        // Always write to dealer_scan_records for every dealer scan
+        const scanRecordPayload = {
+          decoded_text: JSON.stringify({ batchNumber: batch.batch_number }),
+          decoded_payload: { batchNumber: batch.batch_number },
+          bag_id: null,
+          batch_number: batch.batch_number,
+          product_name: batch.product_name || null,
+          number_of_bags: batch.qr_codes ? batch.qr_codes.length : null,
+          manufacturer: batch.manufacturer || null,
+          bag_weight: batch.bag_weight || null,
+          matched_batch_id: batch.id,
+          dealer_name: req.body.dealer_name || null,
+          location: req.body.location || null,
+          status: 'received',
+          changed,
+        };
+
+        await supabase
+          .from('dealer_scan_records')
+          .insert([scanRecordPayload]);
 
         return res.status(200).json({
           batchId: batch.id,
@@ -176,15 +252,16 @@ async function scanBatchBag(req, res) {
           number_of_bags: batch.qr_codes ? batch.qr_codes.length : null,
           status: 'received',
           changed,
-          message: 'All bags in the batch have been marked as received.',
+          message: changed ? 'All bags in the batch have been marked as received.' : 'Batch already received.',
         });
+      }
     }
 
     // Continue with bagId handling...
 
     const { data: batches, error: findError } = await supabase
       .from(batchesTable)
-      .select('id, batch_number, qr_codes');
+      .select('*');
 
     if (findError) {
       return res.status(500).json({ error: findError.message });
@@ -256,6 +333,25 @@ async function scanBatchBag(req, res) {
     }
 
     if (scannedBy === 'dealer' && nextStatus === 'received' && !changed) {
+      // Still save scan record for the dealer
+      await supabase
+        .from('dealer_scan_records')
+        .insert([{
+          decoded_text: JSON.stringify({ bagId }),
+          decoded_payload: { bagId },
+          bag_id: bagId,
+          batch_number: batch.batch_number,
+          product_name: batch.product_name || null,
+          number_of_bags: 1,
+          manufacturer: batch.manufacturer || null,
+          bag_weight: batch.bag_weight || null,
+          matched_batch_id: batch.id,
+          dealer_name: req.body.dealer_name || null,
+          location: req.body.location || null,
+          status: 'received',
+          changed: false,
+        }]);
+
       return res.status(200).json({
         bagId,
         batchNumber: batch.batch_number,
@@ -283,6 +379,29 @@ async function scanBatchBag(req, res) {
       if (updateError) {
         return res.status(500).json({ error: updateError.message });
       }
+    }
+
+    if (scannedBy === 'dealer') {
+      // Always write to dealer_scan_records for every dealer scan
+      const scanRecordPayload = {
+        decoded_text: JSON.stringify({ bagId }),
+        decoded_payload: { bagId },
+        bag_id: bagId,
+        batch_number: batch.batch_number,
+        product_name: batch.product_name || null,
+        number_of_bags: 1,
+        manufacturer: batch.manufacturer || null,
+        bag_weight: batch.bag_weight || null,
+        matched_batch_id: batch.id,
+        dealer_name: req.body.dealer_name || null,
+        location: req.body.location || null,
+        status: nextStatus,
+        changed,
+      };
+
+      await supabase
+        .from('dealer_scan_records')
+        .insert([scanRecordPayload]);
     }
 
         return res.status(200).json({

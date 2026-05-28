@@ -1,4 +1,4 @@
-﻿import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import mockFarmerRecords from './mockFarmerRecords';
@@ -422,6 +422,7 @@ function AddPage() {
   const [showBatchForm, setShowBatchForm] = useState(false);
   const [generatedBagIds, setGeneratedBagIds] = useState([]);
   const [generatedQRCodes, setGeneratedQRCodes] = useState([]);
+  const [generatedBatchQRCode, setGeneratedBatchQRCode] = useState('');
   const [saveState, setSaveState] = useState({ status: 'idle', message: '' });
   const [expiryError, setExpiryError] = useState('');
   const [batchForm, setBatchForm] = useState({
@@ -445,6 +446,10 @@ function AddPage() {
 
     if (generatedQRCodes.length > 0) {
       setGeneratedQRCodes([]);
+    }
+
+    if (generatedBatchQRCode) {
+      setGeneratedBatchQRCode('');
     }
 
     if (name === 'productExpiry') {
@@ -474,6 +479,7 @@ function AddPage() {
     if (!Number.isInteger(bagCount) || bagCount <= 0) {
       setGeneratedBagIds([]);
       setGeneratedQRCodes([]);
+      setGeneratedBatchQRCode('');
       setSaveState({ status: 'error', message: 'Enter a valid number of bags before generating.' });
       return;
     }
@@ -505,6 +511,9 @@ function AddPage() {
           productName: batchForm.productName,
           manufacturer: batchForm.manufacturer,
           bagWeight: batchForm.bagWeight,
+          numberOfBags: bagCount,
+          productPrice: batchForm.productPrice,
+          productExpiry: batchForm.productExpiry,
           bagIds,
         }),
       });
@@ -516,7 +525,9 @@ function AddPage() {
       }
 
       const qrCodes = qrResult.qrCodes || [];
+      const batchQrCodeDataUrl = qrResult.batchQrCodeDataUrl || '';
       setGeneratedQRCodes(qrCodes);
+      setGeneratedBatchQRCode(batchQrCodeDataUrl);
 
       const batchPayload = {
         batchNumber: batchForm.batchNumber,
@@ -528,6 +539,7 @@ function AddPage() {
         bagWeight: batchForm.bagWeight,
         bagIds,
         qrCodes,
+        batchQrCode: batchQrCodeDataUrl,
       };
 
       const saveResponse = await fetch(`${API_BASE_URL}/api/batches`, {
@@ -662,6 +674,26 @@ function AddPage() {
           </button>
         </div>
       </div>
+
+      {generatedBatchQRCode && (
+        <section className="generated-panel qr-panel batch-qr-panel">
+          <div className="generated-panel__header">
+            <h3>Batch QR Code</h3>
+            <p>This QR code contains all batch-level details (including total bags, price, and expiry) and can be scanned to view or process the entire batch.</p>
+          </div>
+          <div className="batch-qr-container" style={{ display: 'flex', justifyContent: 'center', margin: '20px 0' }}>
+            <article className="generated-bag-card qr-card batch-qr-card" style={{ maxWidth: '280px', width: '100%', textAlign: 'center', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+              <img src={generatedBatchQRCode} alt={`QR for batch ${batchForm.batchNumber}`} className="qr-image batch-qr-image" style={{ width: '100%', height: 'auto', marginBottom: '15px', borderRadius: '8px' }} />
+              <strong style={{ display: 'block', fontSize: '1.1rem', marginBottom: '5px' }}>Batch: {batchForm.batchNumber}</strong>
+              <small style={{ display: 'block', color: 'rgba(255, 255, 255, 0.6)', marginBottom: '5px' }}>Includes: {batchForm.numberOfBags} Bags</small>
+              {batchForm.productName && <span className="batch-qr-info" style={{ display: 'block', fontSize: '0.9rem', marginBottom: '15px' }}>Product: {batchForm.productName}</span>}
+              <a href={generatedBatchQRCode} download={`BATCH-${batchForm.batchNumber}.png`} className="table-action qr-download" style={{ display: 'inline-block', width: '100%', padding: '10px', borderRadius: '6px', textDecoration: 'none', fontWeight: 'bold' }}>
+                Download Batch QR
+              </a>
+            </article>
+          </div>
+        </section>
+      )}
 
       {generatedBagIds.length > 0 && (
         <section className="generated-panel">
@@ -847,6 +879,22 @@ function PreviousPage() {
               <div><span>Weight of Each Bag</span><strong>{selectedBatch.bag_weight || 'Not set'}</strong></div>
               <div><span>Created On</span><strong>{formatDate(selectedBatch.created_at)}</strong></div>
             </div>
+
+            {selectedBatch.batch_qr_code && (
+              <div className="batch-subsection">
+                <h4>Batch QR Code</h4>
+                <div className="batch-qr-container" style={{ display: 'flex', justifyContent: 'center', margin: '15px 0' }}>
+                  <article className="generated-bag-card qr-card batch-qr-card" style={{ maxWidth: '240px', width: '100%', textAlign: 'center', padding: '15px', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                    <img src={selectedBatch.batch_qr_code} alt={`QR for batch ${selectedBatch.batch_number}`} className="qr-image batch-qr-image" style={{ width: '100%', height: 'auto', marginBottom: '10px', borderRadius: '6px' }} />
+                    <strong style={{ display: 'block', fontSize: '1rem', marginBottom: '5px' }}>Batch: {selectedBatch.batch_number}</strong>
+                    <small style={{ display: 'block', color: 'rgba(255, 255, 255, 0.6)', marginBottom: '10px' }}>Includes: {selectedBatch.number_of_bags} Bags</small>
+                    <a href={selectedBatch.batch_qr_code} download={`BATCH-${selectedBatch.batch_number}.png`} className="table-action qr-download" style={{ display: 'inline-block', width: '100%', padding: '8px', borderRadius: '4px', textDecoration: 'none', fontWeight: 'bold', fontSize: '0.9rem' }}>
+                      Download Batch QR
+                    </a>
+                  </article>
+                </div>
+              </div>
+            )}
 
             <div className="batch-subsection">
               <h4>Bag IDs</h4>
@@ -1425,38 +1473,73 @@ function ScannerPage() {
     setScanResult(decodedText);
     setScanUpdate(null);
     setScanError('');
-    setScanStatus('Updating bag status');
+    setScanStatus('Updating status...');
 
     try {
       if (scannerRef.current?.isScanning) {
         await stopScanner();
       }
 
-      const bagId = getBagIdFromScan(decodedText);
-
-      if (!bagId) {
-        throw new Error('The scanned QR code does not contain a bag ID.');
+      let isBatchQR = false;
+      let batchNumber = '';
+      try {
+        const parsed = JSON.parse(decodedText);
+        if (parsed && parsed.batchNumber && !parsed.bagId) {
+          isBatchQR = true;
+          batchNumber = parsed.batchNumber;
+        }
+      } catch (err) {
+        // Not a JSON payload, treated as raw text (bag ID)
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/batches/scan`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ bagId, scannedBy: 'gov' }),
-      });
+      let response;
+      if (isBatchQR) {
+        setScanStatus('Updating batch status');
+        response = await fetch(`${API_BASE_URL}/api/batches/scan`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ batchNumber, scannedBy: 'gov' }),
+        });
+      } else {
+        const bagId = getBagIdFromScan(decodedText);
+        if (!bagId) {
+          throw new Error('The scanned QR code does not contain a valid bag ID.');
+        }
+
+        setScanStatus('Updating bag status');
+        response = await fetch(`${API_BASE_URL}/api/batches/scan`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ bagId, scannedBy: 'gov' }),
+        });
+      }
 
       const result = await readJsonResponse(response);
 
       if (!response.ok) {
-        throw new Error(result.error || 'Unable to update bag status.');
+        throw new Error(result.error || 'Unable to update status.');
       }
 
-      setScanUpdate(result);
-      setScanStatus(result.changed ? 'Marked sent' : 'Bag already sent');
+      if (isBatchQR) {
+        setScanUpdate({
+          bagId: `BATCH: ${result.batchNumber}`,
+          message: result.message,
+          batchNumber: result.batchNumber,
+          status: result.status,
+          changed: result.changed,
+        });
+        setScanStatus(result.changed ? 'Marked sent' : 'Batch already sent');
+      } else {
+        setScanUpdate(result);
+        setScanStatus(result.changed ? 'Marked sent' : 'Bag already sent');
+      }
     } catch (error) {
       setScanStatus('Scan update failed');
-      setScanError(error.message || 'Unable to update bag status.');
+      setScanError(error.message || 'Unable to update status.');
     } finally {
       scanRequestRef.current = false;
     }
@@ -1515,41 +1598,105 @@ function ScannerPage() {
       imageBitmap.close?.();
     }
   }
+  async function resizeImage(file, maxDimension) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
 
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxDimension / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) return reject(new Error('Canvas resize failed'));
+          resolve(new File([blob], file.name, { type: file.type }));
+        },
+        file.type || 'image/jpeg'
+      );
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Image failed to load for resizing'));
+    };
+
+    img.src = url;
+  });
+}
   async function handleFileScan(event) {
-    const [file] = event.target.files || [];
-    if (!file) return;
+  const [file] = event.target.files || [];
+  if (!file) return;
 
-    setScanError('');
-    setScanStatus('Reading image');
+  setScanError('');
+  setScanStatus('Reading image');
 
-    try {
-      const scanner = await getScanner();
-
-      if (scanner.isScanning) {
-        await stopScanner();
-      }
-
-      let decodedText;
-
-      try {
-        decodedText = await scanner.scanFile(file, true);
-      } catch (scanFileError) {
-        scanner.clear();
-        decodedText = await scanFileWithNativeDetector(file);
-      }
-
-      await handleScanSuccess(decodedText);
-    } catch (error) {
-      setScanStatus('No QR found');
-      setScanError(error?.message || 'No QR code could be read from this image.');
-    } finally {
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-    }
+  // Helper to try scanning with html5-qrcode scanner
+  async function tryScanWithScanner(targetFile) {
+  // Use a separate hidden div so file scanning never touches the camera scanner
+  const tempId = 'qr-file-reader-temp';
+  let tempDiv = document.getElementById(tempId);
+  if (!tempDiv) {
+    tempDiv = document.createElement('div');
+    tempDiv.id = tempId;
+    tempDiv.style.display = 'none';
+    document.body.appendChild(tempDiv);
   }
 
+  const tempScanner = new Html5Qrcode(tempId);
+  try {
+    // false = don't render image into DOM (avoids layout side-effects)
+    return await tempScanner.scanFile(targetFile, false);
+  } finally {
+    try { tempScanner.clear(); } catch {}
+  }
+}
+
+  // Attempt sequence: original -> resized 800 -> resized 400
+  const attempts = [];
+  attempts.push(() => tryScanWithScanner(file));
+  attempts.push(async () => {
+    const resized = await resizeImage(file, 800);
+    return tryScanWithScanner(resized);
+  });
+  attempts.push(async () => {
+    const resized = await resizeImage(file, 400);
+    return tryScanWithScanner(resized);
+  });
+
+  let decodedText;
+  try {
+    for (const attempt of attempts) {
+      try {
+        decodedText = await attempt();
+        break; // success
+      } catch (err) {
+        // If this was the last attempt, rethrow
+        if (attempt === attempts[attempts.length - 1]) {
+          throw err;
+        }
+      }
+    }
+    // Fallback to native detector if still no result and supported
+    if (!decodedText && window.BarcodeDetector && window.createImageBitmap) {
+      decodedText = await scanFileWithNativeDetector(file);
+    }
+    if (!decodedText) {
+      throw new Error('No QR code could be read from this image.');
+    }
+    await handleScanSuccess(decodedText);
+  } catch (error) {
+    setScanStatus('No QR found');
+    setScanError(error?.message || 'No QR code could be read from this image.');
+  } finally {
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }
+}
   async function copyResult() {
     if (!scanResult) return;
 
