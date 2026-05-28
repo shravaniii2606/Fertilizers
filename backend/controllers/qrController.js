@@ -27,6 +27,7 @@ async function generateBagQRCodes(req, res) {
         return {
           bagId,
           qrCodeDataUrl,
+          status: null,
         };
       })
     );
