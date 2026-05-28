@@ -70,11 +70,5 @@ create policy "Allow anon insert dealer scan records"
 on public.dealer_scan_records
 for insert
 to anon
+using (true)
 with check (true);
-
-drop policy if exists "Allow anon select dealer scan records" on public.dealer_scan_records;
-create policy "Allow anon select dealer scan records"
-on public.dealer_scan_records
-for select
-to anon
-using (true);
