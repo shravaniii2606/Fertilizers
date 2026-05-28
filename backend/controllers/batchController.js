@@ -27,7 +27,9 @@ function normalizeBatchPayload(body) {
     manufacturer: body.manufacturer?.trim() || null,
     bag_weight: body.bagWeight?.trim() || null,
     bag_ids: Array.isArray(body.bagIds) ? body.bagIds : [],
-    qr_codes: Array.isArray(body.qrCodes) ? body.qrCodes : [],
+    qr_codes: Array.isArray(body.qrCodes)
+      ? body.qrCodes.map((qrCode) => ({ ...qrCode, status: null }))
+      : [],
   };
 }
 
@@ -95,9 +97,14 @@ async function listBatches(req, res) {
 async function scanBatchBag(req, res) {
   try {
     const bagId = req.body.bagId?.trim();
+    const scannedBy = (req.body.scannedBy || req.body.role || 'dealer').toLowerCase();
 
     if (!bagId) {
       return res.status(400).json({ error: 'Bag ID is required.' });
+    }
+
+    if (!['gov', 'dealer'].includes(scannedBy)) {
+      return res.status(400).json({ error: 'Scanner role must be gov or dealer.' });
     }
 
     const supabase = getSupabaseClient();
@@ -118,21 +125,80 @@ async function scanBatchBag(req, res) {
     }
 
     let changed = false;
+    let currentStatus = null;
+    let nextStatus = null;
     const updatedQrCodes = (batch.qr_codes || []).map((qrCode) => {
       if (qrCode?.bagId !== bagId) {
         return qrCode;
       }
 
-      if (qrCode.status === 'sent') {
+      currentStatus = qrCode.status ?? null;
+      const normalizedStatus = currentStatus === 'receive' ? 'received' : currentStatus;
+
+      if (scannedBy === 'gov') {
+        if (normalizedStatus !== null) {
+          nextStatus = normalizedStatus;
+          return qrCode;
+        }
+
+        changed = true;
+        nextStatus = 'sent';
+        return {
+          ...qrCode,
+          status: nextStatus,
+        };
+      }
+
+      if (normalizedStatus !== 'sent') {
+        nextStatus = normalizedStatus;
         return qrCode;
       }
 
       changed = true;
+      nextStatus = 'received';
       return {
         ...qrCode,
-        status: 'sent',
+        status: nextStatus,
       };
     });
+
+    if (scannedBy === 'gov' && currentStatus !== null) {
+      return res.status(200).json({
+        bagId,
+        batchNumber: batch.batch_number,
+        status: nextStatus,
+        changed: false,
+        message: 'Bag already sent.',
+      });
+    }
+
+    if (scannedBy === 'dealer' && currentStatus === null) {
+      return res.status(400).json({
+        error: 'Dealer cannot scan a bag whose status is null.',
+        bagId,
+        batchNumber: batch.batch_number,
+        status: currentStatus,
+      });
+    }
+
+    if (scannedBy === 'dealer' && nextStatus === 'received' && !changed) {
+      return res.status(200).json({
+        bagId,
+        batchNumber: batch.batch_number,
+        status: nextStatus,
+        changed: false,
+        message: 'Bag received already.',
+      });
+    }
+
+    if (scannedBy === 'dealer' && nextStatus !== 'received' && nextStatus !== 'sent') {
+      return res.status(400).json({
+        error: `Bag ID ${bagId} has unsupported status "${currentStatus}".`,
+        bagId,
+        batchNumber: batch.batch_number,
+        status: currentStatus,
+      });
+    }
 
     if (changed) {
       const { error: updateError } = await supabase
@@ -148,9 +214,11 @@ async function scanBatchBag(req, res) {
     return res.status(200).json({
       bagId,
       batchNumber: batch.batch_number,
-      status: 'sent',
+      status: nextStatus,
       changed,
-      message: changed ? 'Status changed from null to sent.' : 'Status is already sent.',
+      message: scannedBy === 'gov'
+        ? 'Status changed from null to sent.'
+        : 'Status changed from sent to received.',
     });
   } catch (error) {
     console.error('Scan batch bag failed:', error);

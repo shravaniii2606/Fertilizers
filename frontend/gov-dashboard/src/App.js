@@ -137,6 +137,102 @@ function getFarmerTransactions(farmerId, lastTransaction, fertilizerType, totalR
   ]);
 }
 
+function getFarmerRiskProfile(record) {
+  const triggeredRules = [];
+  const alerts = [];
+  let riskScore = 18;
+
+  if (record.fertilizerPurchasedKg > record.monthlyLimitKg) {
+    triggeredRules.push('Monthly fertilizer limit exceeded');
+    alerts.push({
+      rule: 'Limit exceeded',
+      message: `${record.name} purchased ${record.fertilizerPurchasedKg} kg against a ${record.monthlyLimitKg} kg monthly limit.`,
+      severity: 'High',
+    });
+    riskScore += 34;
+  }
+
+  if (record.fertilizerPurchasedKg > record.districtAverageKg * 1.8) {
+    triggeredRules.push('Above district average purchase');
+    alerts.push({
+      rule: 'District average anomaly',
+      message: `${record.name} is above the ${record.district} district average of ${record.districtAverageKg} kg.`,
+      severity: 'Medium',
+    });
+    riskScore += 24;
+  }
+
+  if (record.dealersUsed > 2) {
+    triggeredRules.push('Multiple dealer purchases');
+    alerts.push({
+      rule: 'Multiple dealers',
+      message: `${record.name} purchased through ${record.dealersUsed} dealers in the review period.`,
+      severity: 'Medium',
+    });
+    riskScore += 18;
+  }
+
+  if (record.purchases > 5) {
+    triggeredRules.push('High purchase frequency');
+    alerts.push({
+      rule: 'Frequent purchases',
+      message: `${record.name} made ${record.purchases} fertilizer purchases recently.`,
+      severity: 'Medium',
+    });
+    riskScore += 12;
+  }
+
+  if (record.status === 'Inactive') {
+    triggeredRules.push('Inactive farmer transaction activity');
+    alerts.push({
+      rule: 'Inactive status',
+      message: `${record.name} has recent fertilizer activity while marked inactive.`,
+      severity: 'High',
+    });
+    riskScore += 20;
+  }
+
+  const boundedRiskScore = Math.min(99, riskScore);
+  const severity = boundedRiskScore >= 70 ? 'High' : boundedRiskScore >= 45 ? 'Medium' : 'Low';
+
+  return {
+    riskScore: boundedRiskScore,
+    severity,
+    suspicious: triggeredRules.length > 0,
+    triggeredRules,
+    alerts,
+  };
+}
+
+function buildFarmerAnalysisRecords() {
+  return mockFarmerRecords.map((record) => {
+    const riskProfile = getFarmerRiskProfile(record);
+    const aiInsight = riskProfile.suspicious
+      ? `${record.name} needs review because ${riskProfile.triggeredRules.join(', ').toLowerCase()}.`
+      : `${record.name} is within expected fertilizer distribution limits.`;
+
+    return {
+      ...record,
+      ...riskProfile,
+      aiInsight,
+    };
+  });
+}
+
+const farmerDetailsByAadhar = Object.fromEntries(
+  buildFarmerAnalysisRecords().map((record) => [
+    record.id,
+    {
+      landSize: record.landSize,
+      cropType: record.cropType,
+      monthlyLimit: `${record.monthlyLimitKg} kg`,
+      riskLevel: record.severity,
+      reason: record.triggeredRules.join(', ') || 'No risk rule triggered for this farmer.',
+      fertilizersNeeded: cropFertilizerRules[record.cropType.toLowerCase()]?.join(', ') || record.fertilizerType,
+    },
+  ])
+);
+
 function Icon({ type }) {
   const common = { width: 34, height: 34, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '1.8', strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true };
 
@@ -596,7 +692,7 @@ function AddPage() {
               <article key={qrCode.bagId} className="generated-bag-card qr-card">
                 <img src={qrCode.qrCodeDataUrl} alt={`QR for ${qrCode.bagId}`} className="qr-image" />
                 <strong>{qrCode.bagId}</strong>
-                <small>Status: {qrCode.status || 'not sent'}</small>
+                <small>Status: {qrCode.status || 'not scanned'}</small>
                 <a href={qrCode.qrCodeDataUrl} download={`${qrCode.bagId}.png`} className="table-action qr-download">
                   Download QR
                 </a>
@@ -761,7 +857,7 @@ function PreviousPage() {
                   return (
                     <span key={bagId} className="detail-chip">
                       {bagId}
-                      <small>{qrStatus || 'not sent'}</small>
+                      <small>{qrStatus || 'not scanned'}</small>
                     </span>
                   );
                 })}
@@ -776,7 +872,7 @@ function PreviousPage() {
                     <article key={qrCode.bagId} className="generated-bag-card qr-card">
                       <img src={qrCode.qrCodeDataUrl} alt={`QR for ${qrCode.bagId}`} className="qr-image" />
                       <strong>{qrCode.bagId}</strong>
-                      <small>Status: {qrCode.status || 'not sent'}</small>
+                      <small>Status: {qrCode.status || 'not scanned'}</small>
                       <a href={qrCode.qrCodeDataUrl} download={`${qrCode.bagId}.png`} className="table-action qr-download">
                         Download QR
                       </a>
@@ -1347,7 +1443,7 @@ function ScannerPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ bagId }),
+        body: JSON.stringify({ bagId, scannedBy: 'gov' }),
       });
 
       const result = await readJsonResponse(response);
@@ -1357,7 +1453,7 @@ function ScannerPage() {
       }
 
       setScanUpdate(result);
-      setScanStatus(result.changed ? 'Marked sent' : 'Already scanned');
+      setScanStatus(result.changed ? 'Marked sent' : 'Bag already sent');
     } catch (error) {
       setScanStatus('Scan update failed');
       setScanError(error.message || 'Unable to update bag status.');
