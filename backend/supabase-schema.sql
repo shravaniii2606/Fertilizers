@@ -11,11 +11,15 @@ create table if not exists public.batches (
   bag_weight text,
   bag_ids text[] not null default '{}',
   qr_codes jsonb not null default '[]'::jsonb,
+  batch_qr_code text,
   created_at timestamptz not null default timezone('utc', now())
 );
 
 alter table public.batches
 add column if not exists qr_codes jsonb not null default '[]'::jsonb;
+
+alter table public.batches
+add column if not exists batch_qr_code text;
 
 create index if not exists batches_created_at_idx on public.batches (created_at desc);
 create index if not exists batches_batch_number_idx on public.batches (batch_number);
@@ -32,6 +36,11 @@ create table if not exists public.dealer_scan_records (
   manufacturer text,
   bag_weight text,
   matched_batch_id uuid,
+  dealer_id uuid,
+  dealer_name text,
+  location text,
+  status text,
+  changed boolean,
   scanned_at timestamptz not null default timezone('utc', now())
 );
 
@@ -70,5 +79,15 @@ create policy "Allow anon insert dealer scan records"
 on public.dealer_scan_records
 for insert
 to anon
-using (true)
 with check (true);
+
+drop policy if exists "Allow anon select dealer scan records" on public.dealer_scan_records;
+create policy "Allow anon select dealer scan records"
+on public.dealer_scan_records
+for select
+to anon
+using (true);
+
+alter table public.dealer_scan_records
+add column if not exists status text,
+add column if not exists changed boolean;

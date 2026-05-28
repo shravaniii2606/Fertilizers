@@ -30,8 +30,10 @@ function normalizeBatchPayload(body) {
     qr_codes: Array.isArray(body.qrCodes)
       ? body.qrCodes.map((qrCode) => ({ ...qrCode, status: null }))
       : [],
+    batch_qr_code: body.batchQrCode || null,
   };
 }
+
 
 function normalizeBagId(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -97,10 +99,11 @@ async function listBatches(req, res) {
 async function scanBatchBag(req, res) {
   try {
     const bagId = req.body.bagId?.trim();
+    const batchNumber = req.body.batchNumber?.trim();
     const scannedBy = (req.body.scannedBy || req.body.role || 'dealer').toLowerCase();
 
-    if (!bagId) {
-      return res.status(400).json({ error: 'Bag ID is required.' });
+    if (!bagId && !batchNumber) {
+      return res.status(400).json({ error: 'Bag ID or Batch Number is required.' });
     }
 
     if (!['gov', 'dealer'].includes(scannedBy)) {
@@ -108,6 +111,77 @@ async function scanBatchBag(req, res) {
     }
 
     const supabase = getSupabaseClient();
+
+    if (batchNumber) {
+      // Dealer batch scan
+      const { data: batches, error: findError } = await supabase
+        .from(batchesTable)
+        .select('id, batch_number, qr_codes')
+        .eq('batch_number', batchNumber);
+
+      if (findError) {
+        return res.status(500).json({ error: findError.message });
+      }
+
+      const batch = batches?.[0];
+      if (!batch) {
+        return res.status(404).json({ error: `No batch found for Batch Number ${batchNumber}.` });
+      }
+
+      if (scannedBy !== 'dealer') {
+        return res.status(400).json({ error: 'Only dealer users can scan a batch for receipt.' });
+      }
+
+      const qrCodes = batch.qr_codes || [];
+
+      // If any bag status is null, cannot receive
+      const hasNull = qrCodes.some(qr => qr && qr.status === null);
+      if (hasNull) {
+        return res.status(400).json({ error: 'Batch contains bags with null status; cannot receive before sent.' });
+      }
+
+      const allReceived = qrCodes.every(qr => qr && qr.status === 'received');
+      if (allReceived) {
+        return res.status(200).json({
+          batchNumber: batch.batch_number,
+          status: 'received',
+          changed: false,
+          message: 'Batch already received.',
+        });
+      }
+
+      // Update all bags with status 'sent' to 'received'
+      let changed = false;
+      const updatedQrCodes = qrCodes.map(qr => {
+        if (qr && qr.status === 'sent') {
+          changed = true;
+          return { ...qr, status: 'received' };
+        }
+        return qr;
+      });
+
+      if (changed) {
+        const { error: updateError } = await supabase
+          .from(batchesTable)
+          .update({ qr_codes: updatedQrCodes })
+          .eq('id', batch.id);
+        if (updateError) {
+          return res.status(500).json({ error: updateError.message });
+        }
+      }
+
+        return res.status(200).json({
+          batchId: batch.id,
+          batchNumber: batch.batch_number,
+          number_of_bags: batch.qr_codes ? batch.qr_codes.length : null,
+          status: 'received',
+          changed,
+          message: 'All bags in the batch have been marked as received.',
+        });
+    }
+
+    // Continue with bagId handling...
+
     const { data: batches, error: findError } = await supabase
       .from(batchesTable)
       .select('id, batch_number, qr_codes');
@@ -211,15 +285,16 @@ async function scanBatchBag(req, res) {
       }
     }
 
-    return res.status(200).json({
-      bagId,
-      batchNumber: batch.batch_number,
-      status: nextStatus,
-      changed,
-      message: scannedBy === 'gov'
-        ? 'Status changed from null to sent.'
-        : 'Status changed from sent to received.',
-    });
+        return res.status(200).json({
+          bagId,
+          batchId: batch.id,
+          batchNumber: batch.batch_number,
+          status: nextStatus,
+          changed,
+          message: scannedBy === 'gov'
+            ? 'Status changed from null to sent.'
+            : 'Status changed from sent to received.',
+        });
   } catch (error) {
     console.error('Scan batch bag failed:', error);
     return res.status(500).json({ error: getErrorMessage(error) });
@@ -312,9 +387,6 @@ async function markBagSent(req, res) {
 module.exports = {
   createBatch,
   listBatches,
-<<<<<<< HEAD
   markBagSent,
-=======
   scanBatchBag,
->>>>>>> 70271fdb8863a50515da39d447cd4990a37ded64
 };
