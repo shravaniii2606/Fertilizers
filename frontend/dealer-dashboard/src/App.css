@@ -918,6 +918,86 @@
   color: #b91c1c;
 }
 
+.records-section {
+  background: #ffffff;
+  border: 1px solid #dfe7f2;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+  overflow: hidden;
+}
+
+.records-message {
+  margin: 0;
+  padding: 28px;
+  color: #475569;
+  line-height: 1.6;
+}
+
+.records-message.error {
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  margin: 20px;
+}
+
+.records-table-wrap {
+  overflow-x: auto;
+}
+
+.records-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.records-table th,
+.records-table td {
+  padding: 16px 18px;
+  text-align: left;
+  border-bottom: 1px solid #edf2f7;
+  vertical-align: middle;
+}
+
+.records-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.records-table td {
+  color: #0f172a;
+  font-size: 0.94rem;
+}
+
+.records-table tbody tr:nth-child(even) {
+  background: #fbfdff;
+}
+
+.records-table tbody tr:hover {
+  background: #eef4ff;
+}
+
+.record-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 180px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #ecfdf5;
+  color: #087b55;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 768px) {
   .search-input-group {
     flex-direction: column;
@@ -941,5 +1021,72 @@
 
   .scanner-reader {
     min-height: 340px;
+  }
+
+  .records-section {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  .records-table-wrap {
+    overflow: visible;
+  }
+
+  .records-table {
+    min-width: 0;
+    border-spacing: 0 12px;
+  }
+
+  .records-table thead {
+    display: none;
+  }
+
+  .records-table,
+  .records-table tbody,
+  .records-table tr,
+  .records-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .records-table tr {
+    background: #ffffff;
+    border: 1px solid #dfe7f2;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+    overflow: hidden;
+  }
+
+  .records-table tbody tr:nth-child(even),
+  .records-table tbody tr:hover {
+    background: #ffffff;
+  }
+
+  .records-table td {
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid #edf2f7;
+    overflow-wrap: anywhere;
+  }
+
+  .records-table td::before {
+    content: attr(data-label);
+    color: #64748b;
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .records-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .record-chip {
+    max-width: 100%;
   }
 }

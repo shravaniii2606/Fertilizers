@@ -992,13 +992,13 @@ function App() {
                     <tbody>
                       {scanRecords.map((record) => (
                         <tr key={record.id}>
-                          <td>{formatDateTime(record.scanned_at)}</td>
-                          <td>{record.bag_id || 'N/A'}</td>
-                          <td>{record.batch_number || 'N/A'}</td>
-                          <td>{record.product_name || 'N/A'}</td>
-                          <td>{record.number_of_bags || 'N/A'}</td>
-                          <td>{record.manufacturer || 'N/A'}</td>
-                          <td>{record.bag_weight || 'N/A'}</td>
+                          <td data-label="Scanned At">{formatDateTime(record.scanned_at)}</td>
+                          <td data-label="Bag ID"><span className="record-chip">{record.bag_id || 'N/A'}</span></td>
+                          <td data-label="Batch Number">{record.batch_number || 'N/A'}</td>
+                          <td data-label="Product">{record.product_name || 'N/A'}</td>
+                          <td data-label="Bags">{record.number_of_bags || 'N/A'}</td>
+                          <td data-label="Manufacturer">{record.manufacturer || 'N/A'}</td>
+                          <td data-label="Weight">{record.bag_weight || 'N/A'}</td>
                         </tr>
                       ))}
                     </tbody>
