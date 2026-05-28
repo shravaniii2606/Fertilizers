@@ -323,7 +323,7 @@ function ScannerPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ bagId }),
+        body: JSON.stringify({ bagId, scannedBy: 'dealer' }),
       });
 
       const result = await readJsonResponse(response);
@@ -333,7 +333,7 @@ function ScannerPage() {
       }
 
       setScanUpdate(result);
-      setScanStatus(result.changed ? 'Marked sent' : 'Already scanned');
+      setScanStatus(result.changed ? 'Marked received' : 'Bag received already');
     } catch (error) {
       setScanStatus('Scan update failed');
       setScanError(error.message || 'Unable to update bag status.');
