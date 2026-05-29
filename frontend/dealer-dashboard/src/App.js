@@ -936,9 +936,54 @@ function App() {
       </div>
     </header>
     <p>Bag Scanner Page Loaded</p>
-    <NewBagScannerPage setCurrentPage={setCurrentPage} />
+    <NewBagScannerPage setCurrentPage={setCurrentPage} farmerData={farmerData} />
   </>
 )}
+
+        {currentPage === 'history' && (
+          <>
+            <header className="top-bar">
+              <div>
+                <p className="page-label">{texts.pageLabel}</p>
+                <h2>{texts.salesHistory}</h2>
+                <p className="subtitle">{texts.salesHistorySubtitle}</p>
+              </div>
+            </header>
+            <section className="records-section">
+              {recordsStatus.status === 'loading' && <p>{recordsStatus.message}</p>}
+              {recordsStatus.status === 'error' && <p className="form-hint form-hint--error">{recordsStatus.message}</p>}
+              {recordsStatus.status !== 'loading' && scanRecords.length > 0 && (
+                <div className="table-wrapper">
+                  <table className="records-table">
+                    <thead>
+                      <tr>
+                        <th>{texts.batchNumber}</th>
+                        <th>{texts.productName}</th>
+                        <th>{texts.bagWeight}</th>
+                        <th>{texts.status}</th>
+                        <th>{texts.scannedAt}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {scanRecords.map((record) => (
+                        <tr key={record.id}>
+                          <td data-label="Batch Number">{record.batch_number || 'N/A'}</td>
+                          <td data-label="Product">{record.product_name || 'N/A'}</td>
+                          <td data-label="Weight">{record.bag_weight || 'N/A'}</td>
+                          <td data-label="Status">{record.status || 'N/A'}</td>
+                          <td data-label="Scanned At">{new Date(record.scanned_at).toLocaleString() || 'N/A'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {recordsStatus.status !== 'loading' && scanRecords.length === 0 && (
+                <p>{texts.noRecords || 'No history records yet.'}</p>
+              )}
+            </section>
+          </>
+        )}
 
         {currentPage === 'scan' && (
           <>
@@ -1002,20 +1047,20 @@ function App() {
           </>
         )}
 
-        {currentPage === 'history' && (
-          <>
-            <header className="top-bar">
-              <div>
-                <p className="page-label">{texts.pageLabel}</p>
-                <h2>{texts.salesHistory}</h2>
-                <p className="subtitle">{texts.salesHistorySubtitle}</p>
-              </div>
-            </header>
-            <section className="empty-section">
-              <p>{texts.featureComingSoon}</p>
-            </section>
-          </>
-        )}
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         {currentPage === 'alerts' && (
           <>

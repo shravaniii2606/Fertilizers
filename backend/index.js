@@ -11,6 +11,8 @@ const farmerRecordRoutes = require('./routes/farmerRecordRoutes');
 const qrRoutes = require('./routes/qrRoutes');
 const farmerRoutes = require('./routes/farmerRoutes');
 const scanRecordRoutes = require('./routes/scanRecordRoutes');
+const bagRoutes = require('./routes/bagRoutes');
+
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -27,6 +29,7 @@ app.use('/api/farmer-records', farmerRecordRoutes);
 app.use('/api/qrcodes', qrRoutes);
 app.use('/api/farmers', farmerRoutes);
 app.use('/api/scan-records', scanRecordRoutes);
+app.use('/api/bags', bagRoutes);
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
