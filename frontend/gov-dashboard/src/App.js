@@ -1634,60 +1634,57 @@ function ScannerPage() {
   setScanError('');
   setScanStatus('Reading image');
 
-  // Helper to try scanning with html5-qrcode scanner
-  async function tryScanWithScanner(targetFile) {
-  // Use a separate hidden div so file scanning never touches the camera scanner
-  const tempId = 'qr-file-reader-temp';
-  let tempDiv = document.getElementById(tempId);
-  if (!tempDiv) {
-    tempDiv = document.createElement('div');
-    tempDiv.id = tempId;
-    tempDiv.style.display = 'none';
-    document.body.appendChild(tempDiv);
-  }
+    try {
+      const scanner = await getScanner();
 
-  const tempScanner = new Html5Qrcode(tempId);
-  try {
-    // false = don't render image into DOM (avoids layout side-effects)
-    return await tempScanner.scanFile(targetFile, false);
-  } finally {
-    try { tempScanner.clear(); } catch {}
-  }
-}
+      if (scanner.isScanning) {
+        await stopScanner();
+      }
 
-  // Attempt sequence: original -> resized 800 -> resized 400
-  const attempts = [];
-  attempts.push(() => tryScanWithScanner(file));
-  attempts.push(async () => {
-    const resized = await resizeImage(file, 800);
-    return tryScanWithScanner(resized);
-  });
-  attempts.push(async () => {
-    const resized = await resizeImage(file, 400);
-    return tryScanWithScanner(resized);
-  });
+      let decodedText = null;
+      let scanErrorOccurred = null;
 
-  let decodedText;
-  try {
-    for (const attempt of attempts) {
+      // 1. Try scanning original file
       try {
-        decodedText = await attempt();
-        break; // success
-      } catch (err) {
-        // If this was the last attempt, rethrow
-        if (attempt === attempts[attempts.length - 1]) {
-          throw err;
+        decodedText = await scanner.scanFile(file, true);
+      } catch (err1) {
+        scanErrorOccurred = err1;
+      }
+
+      // 2. Try scanning at 800px resize
+      if (!decodedText) {
+        try {
+          const resized800 = await resizeImage(file, 800);
+          decodedText = await scanner.scanFile(resized800, true);
+        } catch (err2) {
+          scanErrorOccurred = err2;
         }
       }
-    }
-    // Fallback to native detector if still no result and supported
-    if (!decodedText && window.BarcodeDetector && window.createImageBitmap) {
-      decodedText = await scanFileWithNativeDetector(file);
-    }
-    if (!decodedText) {
-      throw new Error('No QR code could be read from this image.');
-    }
-    await handleScanSuccess(decodedText);
+
+      // 3. Try scanning at 400px resize
+      if (!decodedText) {
+        try {
+          const resized400 = await resizeImage(file, 400);
+          decodedText = await scanner.scanFile(resized400, true);
+        } catch (err3) {
+          scanErrorOccurred = err3;
+        }
+      }
+
+      // 4. Try scanning with native BarcodeDetector if supported
+      if (!decodedText && window.BarcodeDetector && window.createImageBitmap) {
+        try {
+          decodedText = await scanFileWithNativeDetector(file);
+        } catch (err4) {
+          scanErrorOccurred = err4;
+        }
+      }
+
+      if (!decodedText) {
+        throw scanErrorOccurred || new Error('No QR code could be read from this image.');
+      }
+
+      await handleScanSuccess(decodedText);
   } catch (error) {
     setScanStatus('No QR found');
     setScanError(error?.message || 'No QR code could be read from this image.');

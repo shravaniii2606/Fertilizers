@@ -1,6 +1,6 @@
 const { getSupabaseClient } = require('../supabase');
 
-const farmersTable = process.env.SUPABASE_FARMERS_TABLE || 'farmers';
+const farmersTable = process.env.SUPABASE_FARMERS_TABLE || 'farmer_records';
 
 async function listFarmers(req, res) {
   try {
@@ -23,6 +23,37 @@ async function listFarmers(req, res) {
   }
 }
 
+async function getFarmerByAadhar(req, res) {
+  try {
+    const { aadhar } = req.params;
+    if (!aadhar) {
+      return res.status(400).json({ error: 'Aadhar parameter is required' });
+    }
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from(farmersTable)
+      .select('*')
+      .eq('aadhar_card_id', aadhar)
+      .single();
+    if (error) {
+      if (error.code === 'PGRST116') { // Not found
+        return res.status(404).json({ error: 'Farmer not found' });
+      }
+      return res.status(500).json({ error: error.message });
+    }
+    // Normalize the aadhar field name for the frontend
+    const farmer = { ...data, aadhar: data.aadhar_card_id };
+    delete farmer.aadhar_card_id;
+    return res.status(200).json({ farmer });
+  } catch (error) {
+    const causeMessage = error.cause?.message || error.cause?.code || null;
+    const details = [error.message, causeMessage].filter(Boolean).join(' | ');
+    console.error('Get farmer by Aadhar failed:', error);
+    return res.status(500).json({ error: details || 'Unknown server error' });
+  }
+}
+
 module.exports = {
   listFarmers,
+  getFarmerByAadhar,
 };

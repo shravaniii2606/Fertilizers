@@ -1,4 +1,5 @@
 import { Html5Qrcode } from 'html5-qrcode';
+import NewBagScannerPage from './NewBagScannerPage';
 import { useEffect, useRef, useState } from 'react';
 import './App.css';
 
@@ -680,46 +681,28 @@ function App() {
     }).format(new Date(value));
   };
 
-  // Hardcoded farmer data
-  const farmerDatabase = {
-    '123456789012': {
-      name: 'Rajesh Kumar',
-      age: 45,
-      gender: 'Male',
-      aadhar: '123456789012',
-      phone: '+91 98765 43210',
-      address: 'Village Nandpur, Taluka Indore, District Indore, Madhya Pradesh',
-      limit: 500,
-      purchased: 280
-    },
-    '987654321098': {
-      name: 'Priya Sharma',
-      age: 38,
-      gender: 'Female',
-      aadhar: '987654321098',
-      phone: '+91 87654 32109',
-      address: 'Village Rajkheda, Taluka Ujjain, District Ujjain, Madhya Pradesh',
-      limit: 400,
-      purchased: 120
-    },
-    '456789123456': {
-      name: 'Vikram Singh',
-      age: 52,
-      gender: 'Male',
-      aadhar: '456789123456',
-      phone: '+91 76543 21098',
-      address: 'Village Depalpur, Taluka Mhow, District Indore, Madhya Pradesh',
-      limit: 600,
-      purchased: 450
+  const searchFarmer = async () => {
+    if (!aadharInput) {
+      alert('Please enter Aadhar ID');
+      return;
     }
-  };
-
-  const searchFarmer = () => {
-    if (farmerDatabase[aadharInput]) {
-      setFarmerData(farmerDatabase[aadharInput]);
-    } else {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/farmers/${aadharInput}`);
+      if (response.status === 404) {
+        setFarmerData(null);
+        alert(texts.farmerNotFound);
+        return;
+      }
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Error fetching farmer');
+      }
+      const payload = await response.json();
+      setFarmerData(payload.farmer);
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
       setFarmerData(null);
-      alert(texts.farmerNotFound);
     }
   };
 
@@ -937,12 +920,25 @@ function App() {
                       <span className="value">{localizeDigits(farmerData.limit - farmerData.purchased)} kg</span>
                     </div>
                   </div>
-                  <button className="proceed-button">{texts.proceedToScan}</button>
+                  <button className="proceed-button" onClick={() => setCurrentPage('bagScan')}>{texts.proceedToScan}</button>
                 </div>
               )}
             </section>
           </>
         )}
+{currentPage === 'bagScan' && (
+  <>
+    <header className="top-bar">
+      <div>
+        <p className="page-label">{texts.pageLabel}</p>
+        <h2>{texts.scanBatch}</h2>
+        <p className="subtitle">{texts.scanBatchSubtitle}</p>
+      </div>
+    </header>
+    <p>Bag Scanner Page Loaded</p>
+    <NewBagScannerPage setCurrentPage={setCurrentPage} />
+  </>
+)}
 
         {currentPage === 'scan' && (
           <>

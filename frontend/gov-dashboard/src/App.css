@@ -1,4 +1,4 @@
-﻿.dashboard-shell {
+.dashboard-shell {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 224px minmax(0, 1fr);
@@ -894,6 +894,7 @@
 
 #qr-reader {
   width: min(100%, 620px);
+  min-height: 300px;
 }
 
 #qr-reader video,

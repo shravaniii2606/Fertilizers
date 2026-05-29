@@ -20,7 +20,7 @@ async function generateBagQRCodes(req, res) {
 
         const qrCodeDataUrl = await QRCode.toDataURL(qrPayload, {
           errorCorrectionLevel: 'M',
-          margin: 1,
+          margin: 4,
           width: 220,
         });
 
@@ -45,7 +45,7 @@ async function generateBagQRCodes(req, res) {
 
     const batchQrCodeDataUrl = await QRCode.toDataURL(batchQrPayload, {
       errorCorrectionLevel: 'M',
-      margin: 1,
+      margin: 4,
       width: 220,
     });
 

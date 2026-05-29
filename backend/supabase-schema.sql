@@ -91,3 +91,27 @@ using (true);
 alter table public.dealer_scan_records
 add column if not exists status text,
 add column if not exists changed boolean;
+
+-- Farmer records table
+create table if not exists public.farmer_records (
+  id uuid primary key default gen_random_uuid(),
+  name text,
+  age integer,
+  gender text,
+  aadhar_card_id text unique,
+  phone text,
+  address text,
+  "limit" integer,
+  purchased integer,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+-- Enable row level security
+alter table public.farmer_records enable row level security;
+
+-- Policies for anon
+create policy "Allow anon select farmer_records" on public.farmer_records for select to anon using (true);
+create policy "Allow anon insert farmer_records" on public.farmer_records for insert to anon with check (true);
+create policy "Allow anon update farmer_records" on public.farmer_records for update to anon using (true) with check (true);
+

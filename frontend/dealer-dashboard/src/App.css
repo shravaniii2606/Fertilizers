@@ -809,6 +809,7 @@
 
 #qr-reader {
   width: min(100%, 620px);
+  min-height: 300px;
 }
 
 #qr-reader video,
