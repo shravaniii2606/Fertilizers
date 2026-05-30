@@ -174,11 +174,12 @@ export default function NewBagScannerPage({ setCurrentPage, farmerData: initialF
 
   const handlePurchase = async () => {
     if (!bagData || !farmerData) return;
+    const aadharToUse = initialFarmerData?.aadhar || farmerData.aadhar;
     try {
       const res = await fetch(`${API_BASE_URL}/api/bags/${bagData.id}/purchase`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ farmer_aadhar: farmerData.aadhar })
+        body: JSON.stringify({ farmer_aadhar: aadharToUse })
       });
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));

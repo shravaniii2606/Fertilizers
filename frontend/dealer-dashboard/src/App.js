@@ -974,25 +974,24 @@ const loadSaleHistory = async () => {
             <thead>
               <tr>
                 <th>Date</th>
-                <th>Farmer Aadhar</th>
-                <th>Product</th>
-                <th>Batch</th>
-                <th>Quantity (kg)</th>
-                <th>Season</th>
+          <th>Farmer Aadhar</th>
+          <th>Product</th>
+          <th>Batch</th>
+          <th>Quantity (kg)</th>
+          <th>Season</th>
               </tr>
             </thead>
             <tbody>
-              {saleHistory.map((record) => (
-                <tr key={record.id}>
-                  <td>{new Date(record.created_at).toLocaleString('en-IN')}</td>
-                  <td>{record.farmer_aadhar_card_id}</td>
-                  <td>{record.product_name || 'N/A'}</td>
-                  <td>{record.batch_number || 'N/A'}</td>
-                  <td>{record.quantity_kg}</td>
-                  <td>{record.season || 'N/A'}</td>
-                </tr>
-              ))}
-            </tbody>
+  {saleHistory.map((record) => (
+    <tr key={record.id}>
+      <td>{new Date(record.transaction_datetime || record.created_at).toLocaleString('en-IN')}</td>
+      <td>{record.farmer_aadhar_card_id}</td>
+      <td>{record.fertilizer_name || 'N/A'}</td>
+      <td>{record.batch_number || 'N/A'}</td>
+      <td>{record.kg} kg</td>
+    </tr>
+  ))}
+</tbody>
           </table>
         </div>
       )}

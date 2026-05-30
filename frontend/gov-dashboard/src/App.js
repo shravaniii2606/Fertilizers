@@ -1241,9 +1241,9 @@ function FarmerDetailPanel({ aadharId, onBack }) {
     return () => { isMounted = false; };
   }, [aadharId]);
 
-  const farmer     = detail?.farmer     || {};
-  const land       = detail?.land       || [];
-  const crops      = detail?.crops      || [];
+  const farmer = detail?.farmer || {};
+  const land = detail?.land || [];
+  const crops = detail?.crops || [];
   const soilHealth = detail?.soilHealth || [];
 
   return (
@@ -1278,8 +1278,39 @@ function FarmerDetailPanel({ aadharId, onBack }) {
               <div><span>Name</span><strong>{farmer.name || '—'}</strong></div>
               <div><span>Village</span><strong>{farmer.village || '—'}</strong></div>
               <div><span>District</span><strong>{farmer.district || '—'}</strong></div>
-              <div><span>Fertilizer Limit</span><strong>{farmer.limit != null ? `${farmer.limit} kg` : '—'}</strong></div>
             </div>
+            {(() => {
+              const totalUsed = transactions.reduce((sum, tx) => sum + (tx.quantity_kg || 0), 0);
+              const limit = farmer.limit ?? 0;
+              const remaining = Math.max(0, limit - totalUsed);
+              const pct = limit > 0 ? Math.min(100, Math.round((totalUsed / limit) * 100)) : 0;
+              const barColor = pct >= 90 ? '#ef4444' : pct >= 60 ? '#f59e0b' : '#22c55e';
+              return (
+                <div style={{ marginTop: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '0.85rem' }}>
+                    <span>Seasonal Fertilizer Usage</span>
+                    <span style={{ color: barColor, fontWeight: 600 }}>{pct}% used</span>
+                  </div>
+                  <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '6px', height: '10px', overflow: 'hidden', marginBottom: '12px' }}>
+                    <div style={{ width: `${pct}%`, height: '100%', background: barColor, borderRadius: '6px', transition: 'width 0.4s ease' }} />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', textAlign: 'center' }}>
+                    <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '8px', padding: '10px' }}>
+                      <div style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '4px' }}>Total Limit</div>
+                      <strong>{limit} kg</strong>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '8px', padding: '10px' }}>
+                      <div style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '4px' }}>Used</div>
+                      <strong style={{ color: barColor }}>{totalUsed} kg</strong>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '8px', padding: '10px' }}>
+                      <div style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '4px' }}>Remaining</div>
+                      <strong style={{ color: '#22c55e' }}>{remaining} kg</strong>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </section>
 
           {/* ── Card 2: Land Records ── */}
@@ -1349,9 +1380,9 @@ function FarmerDetailPanel({ aadharId, onBack }) {
             ) : (
               soilHealth.map((row) => (
                 <div key={row.id} className="npk-section">
-                  <NpkBar label="Nitrogen (N)"   value={row.nitrogen}   max={400} color="#22c55e" />
+                  <NpkBar label="Nitrogen (N)" value={row.nitrogen} max={400} color="#22c55e" />
                   <NpkBar label="Phosphorus (P)" value={row.phosphorus} max={250} color="#3b82f6" />
-                  <NpkBar label="Potassium (K)"  value={row.potassium}  max={300} color="#f59e0b" />
+                  <NpkBar label="Potassium (K)" value={row.potassium} max={300} color="#f59e0b" />
                 </div>
               ))
             )}
@@ -1374,9 +1405,10 @@ function FarmerDetailPanel({ aadharId, onBack }) {
                   <tr>
                     <th>Date</th>
                     <th>Dealer</th>
-                    <th>Product</th>
+                    <th>Fertilizer</th>
                     <th>Batch</th>
-                    <th>Quantity</th>
+                    <th>Bag ID</th>
+                    <th>Quantity (kg)</th>
                     <th>Season</th>
                   </tr>
                 </thead>
@@ -1385,8 +1417,9 @@ function FarmerDetailPanel({ aadharId, onBack }) {
                     <tr key={tx.id}>
                       <td>{new Date(tx.created_at).toLocaleString('en-IN')}</td>
                       <td>{tx.dealer_name || 'N/A'}</td>
-                      <td>{tx.product_name || 'N/A'}</td>
+                      <td>{tx.fertilizer_name || 'N/A'}</td>
                       <td>{tx.batch_number || 'N/A'}</td>
+                      <td>{tx.bag_id || 'N/A'}</td>
                       <td>{tx.quantity_kg} kg</td>
                       <td>{tx.season || 'N/A'}</td>
                     </tr>
@@ -1395,6 +1428,7 @@ function FarmerDetailPanel({ aadharId, onBack }) {
               </table>
             )}
           </section>
+
 
         </div>
       )}
@@ -1482,18 +1516,18 @@ function FarmerRecordsPage() {
         <p className={`form-hint form-hint--${state.status === 'loading' ? 'saving' : 'error'}`}>{state.message}</p>
       )}
       <div className="metric-grid">
-        <MetricCard icon="user"     label="Total Farmers"  value={farmerMetrics.totalFarmers.toLocaleString('en-IN')}  accent="teal"   />
-        <MetricCard icon="document" label="Total Records"   value={farmers.length.toLocaleString('en-IN')}             accent="blue"   />
-        <MetricCard icon="warning"  label="Filtered View"  value={filteredFarmers.length.toLocaleString('en-IN')}      accent="orange" />
+        <MetricCard icon="user" label="Total Farmers" value={farmerMetrics.totalFarmers.toLocaleString('en-IN')} accent="teal" />
+        <MetricCard icon="document" label="Total Records" value={farmers.length.toLocaleString('en-IN')} accent="blue" />
+        <MetricCard icon="warning" label="Filtered View" value={filteredFarmers.length.toLocaleString('en-IN')} accent="orange" />
       </div>
       <DataTable
         columns={['Aadhar ID', 'Name', 'Village', 'District', 'Limit (kg)', 'Action']}
         rows={filteredFarmers.map((f) => [
           f.aadhar_id,
           f.name,
-          f.village  || '—',
+          f.village || '—',
           f.district || '—',
-          f.limit    != null ? String(f.limit) : '—',
+          f.limit != null ? String(f.limit) : '—',
           'View Details',
         ])}
         footer={`Showing ${filteredFarmers.length} of ${farmers.length} records`}
@@ -1540,7 +1574,7 @@ function ScannerPage() {
       if (scannerRef.current?.isScanning) {
         scannerRef.current.stop()
           .then(() => scannerRef.current?.clear())
-          .catch(() => {});
+          .catch(() => { });
       } else {
         scannerRef.current?.clear?.();
       }
@@ -1709,40 +1743,40 @@ function ScannerPage() {
     }
   }
   async function resizeImage(file, maxDimension) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
 
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const scale = Math.min(1, maxDimension / Math.max(img.width, img.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(img.width * scale);
-      canvas.height = Math.round(img.height * scale);
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-      canvas.toBlob(
-        (blob) => {
-          if (!blob) return reject(new Error('Canvas resize failed'));
-          resolve(new File([blob], file.name, { type: file.type }));
-        },
-        file.type || 'image/jpeg'
-      );
-    };
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const scale = Math.min(1, maxDimension / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) return reject(new Error('Canvas resize failed'));
+            resolve(new File([blob], file.name, { type: file.type }));
+          },
+          file.type || 'image/jpeg'
+        );
+      };
 
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('Image failed to load for resizing'));
-    };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Image failed to load for resizing'));
+      };
 
-    img.src = url;
-  });
-}
+      img.src = url;
+    });
+  }
   async function handleFileScan(event) {
-  const [file] = event.target.files || [];
-  if (!file) return;
+    const [file] = event.target.files || [];
+    if (!file) return;
 
-  setScanError('');
-  setScanStatus('Reading image');
+    setScanError('');
+    setScanStatus('Reading image');
 
     try {
       const scanner = await getScanner();
@@ -1795,15 +1829,15 @@ function ScannerPage() {
       }
 
       await handleScanSuccess(decodedText);
-  } catch (error) {
-    setScanStatus('No QR found');
-    setScanError(error?.message || 'No QR code could be read from this image.');
-  } finally {
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+    } catch (error) {
+      setScanStatus('No QR found');
+      setScanError(error?.message || 'No QR code could be read from this image.');
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   }
-}
   async function copyResult() {
     if (!scanResult) return;
 

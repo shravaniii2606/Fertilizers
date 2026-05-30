@@ -29,7 +29,7 @@ async function getBagById(req, res) {
       return res.status(500).json({ error: findError.message });
     }
 
-    const batch = (batches || []).find((b) => 
+    const batch = (batches || []).find((b) =>
       (Array.isArray(b.bag_ids) && b.bag_ids.includes(bagId)) ||
       (Array.isArray(b.qr_codes) && b.qr_codes.some(q => q?.bagId === bagId))
     );
@@ -69,7 +69,7 @@ async function purchaseBag(req, res) {
     }
 
     const supabase = getSupabaseClient();
-    
+
     // 1. Find the batch containing the bag
     const { data: batches, error: findError } = await supabase
       .from(batchesTable)
@@ -79,7 +79,7 @@ async function purchaseBag(req, res) {
       return res.status(500).json({ error: findError.message });
     }
 
-    const batch = (batches || []).find((b) => 
+    const batch = (batches || []).find((b) =>
       (Array.isArray(b.bag_ids) && b.bag_ids.includes(bagId)) ||
       (Array.isArray(b.qr_codes) && b.qr_codes.some(q => q?.bagId === bagId))
     );
@@ -102,7 +102,7 @@ async function purchaseBag(req, res) {
       return res.status(500).json({ error: farmerError.message });
     }
 
-    
+
 
     // 4. Update the batch's qr_codes array to save the purchased info
     const updatedQrCodes = (batch.qr_codes || []).map((qr) => {
@@ -120,45 +120,32 @@ async function purchaseBag(req, res) {
     if (batchUpdateError) {
       return res.status(500).json({ error: batchUpdateError.message });
     }
-       const rawWeight = batch.bag_weight || '';
-const parsedWeight = parseInt(rawWeight.replace(/[^0-9]/g, ''), 10) || 0;
+    const rawWeight = batch.bag_weight || '';
+    const parsedWeight = parseInt(rawWeight.replace(/[^0-9]/g, ''), 10) || 0;
 
-const { error: txError } = await supabase
-  .from('farmer_transactions')
-  .insert([{
-    farmer_aadhar_card_id: farmer_aadhar,
-    batch_number: batch.batch_number || null,
-    bag_id: bagId,
-    product_name: batch.product_name || null,
-    quantity_kg: parsedWeight,
-    season: getCurrentSeason(),
-  }]);
 
-if (txError) {
-  console.error('Failed to insert farmer transaction:', txError);
-} 
     // Insert purchase record into history
-        const { data: recordData, error: recordError } = await supabase
-          .from('dealer_scan_records')
-          .insert([
-            {
-              decoded_text: JSON.stringify({ bagId, farmer_aadhar }),
-    decoded_payload: { bagId, farmer_aadhar },
-    bag_id: bagId,
-    batch_number: batch.batch_number || null,
-    product_name: batch.product_name || null,
-    bag_weight: batch.bag_weight || null,
-    status: 'sold',
-    scanned_at: new Date().toISOString(),
-    // ── farmer details ──
-    farmer_aadhar_id: farmer_aadhar,
-    farmer_name:      farmer.name     || null,
-    farmer_village:   farmer.village  || null,
-    farmer_district:  farmer.district || null,
-            }
-          ])
-          .select()
-          .single();
+    const { data: recordData, error: recordError } = await supabase
+      .from('dealer_scan_records')
+      .insert([
+        {
+          decoded_text: JSON.stringify({ bagId, farmer_aadhar }),
+          decoded_payload: { bagId, farmer_aadhar },
+          bag_id: bagId,
+          batch_number: batch.batch_number || null,
+          product_name: batch.product_name || null,
+          bag_weight: batch.bag_weight || null,
+          status: 'sold',
+          scanned_at: new Date().toISOString(),
+          // ── farmer details ──
+          farmer_aadhar_id: farmer_aadhar,
+          farmer_name: farmer.name || null,
+          farmer_village: farmer.village || null,
+          farmer_district: farmer.district || null,
+        }
+      ])
+      .select()
+      .single();
     if (recordError) {
       console.error('Failed to insert scan record:', recordError);
     }

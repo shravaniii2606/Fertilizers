@@ -44,10 +44,7 @@ async function getFarmerTransactionHistory(req, res) {
 
 async function createFarmerTransaction(req, res) {
   try {
-    const {
-      farmer_aadhar_card_id, dealer_id, dealer_name,
-      batch_number, bag_id, product_name, quantity_kg, season,
-    } = req.body;
+    const { farmer_aadhar_card_id, dealer_name, fertilizer_name, batch_number, bag_id, quantity_kg } = req.body;
 
     if (!farmer_aadhar_card_id || !quantity_kg) {
       return res.status(400).json({ error: 'farmer_aadhar_card_id and quantity_kg are required.' });
@@ -55,17 +52,17 @@ async function createFarmerTransaction(req, res) {
 
     const supabase = getSupabaseClient();
 
-    // Check existing purchases this season
+    // Check seasonal limit
     const { data: existing, error: txError } = await supabase
       .from('farmer_transactions')
       .select('quantity_kg')
       .eq('farmer_aadhar_card_id', farmer_aadhar_card_id)
-      .eq('season', season);
+      .eq('season', getCurrentSeason());
+
     if (txError) return res.status(500).json({ error: txError.message });
 
     const alreadyBought = (existing || []).reduce((s, t) => s + (t.quantity_kg || 0), 0);
 
-    // Get farmer's computed limit
     const [landRes, cropRes] = await Promise.all([
       supabase.from('land_records').select('land_area').eq('aadhar_id', farmer_aadhar_card_id),
       supabase.from('crop_records').select('crop_types').eq('aadhar_id', farmer_aadhar_card_id),
@@ -82,7 +79,15 @@ async function createFarmerTransaction(req, res) {
 
     const { data, error } = await supabase
       .from('farmer_transactions')
-      .insert([{ farmer_aadhar_card_id, dealer_id, dealer_name, batch_number, bag_id, product_name, quantity_kg, season }])
+      .insert([{
+        farmer_aadhar_card_id,
+        dealer_name,
+        fertilizer_name,
+        batch_number,
+        bag_id,
+        quantity_kg,
+        season: getCurrentSeason(),
+      }])
       .select()
       .single();
 
@@ -91,6 +96,13 @@ async function createFarmerTransaction(req, res) {
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
+}
+
+function getCurrentSeason() {
+  const month = new Date().getMonth() + 1;
+  if (month >= 6 && month <= 10) return 'Kharif';
+  if (month >= 11 || month <= 3) return 'Rabi';
+  return 'Zaid';
 }
 
 module.exports = { getAllTransactions, getFarmerTransactionHistory, createFarmerTransaction };
