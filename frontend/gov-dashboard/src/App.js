@@ -1201,17 +1201,172 @@ function AlertsPage() {
   );
 }
 
+function NpkBar({ label, value, max, color }) {
+  const pct = Math.min(100, Math.round(((value || 0) / max) * 100));
+  return (
+    <div className="npk-bar-row">
+      <span className="npk-bar-label">{label}</span>
+      <div className="npk-bar-track">
+        <div className="npk-bar-fill" style={{ width: `${pct}%`, background: color }} />
+      </div>
+      <span className="npk-bar-value">{value != null ? `${value} kg/ha` : '—'}</span>
+    </div>
+  );
+}
+
+function FarmerDetailPanel({ aadharId, onBack }) {
+  const [detail, setDetail] = useState(null);
+  const [detailState, setDetailState] = useState({ status: 'loading', message: 'Loading farmer details...' });
+
+  useEffect(() => {
+    let isMounted = true;
+    async function load() {
+      try {
+        setDetailState({ status: 'loading', message: 'Loading farmer details...' });
+        const response = await fetch(`${API_BASE_URL}/api/farmer-records/${encodeURIComponent(aadharId)}`);
+        const result = await readJsonResponse(response);
+        if (!response.ok) throw new Error(result.error || 'Unable to load farmer details.');
+        if (isMounted) {
+          setDetail(result);
+          setDetailState({ status: 'success', message: '' });
+        }
+      } catch (error) {
+        if (isMounted) setDetailState({ status: 'error', message: error.message || 'Failed to load.' });
+      }
+    }
+    load();
+    return () => { isMounted = false; };
+  }, [aadharId]);
+
+  const farmer     = detail?.farmer     || {};
+  const land       = detail?.land       || [];
+  const crops      = detail?.crops      || [];
+  const soilHealth = detail?.soilHealth || [];
+
+  return (
+    <section className="page-content">
+      <PageTitle
+        title="Farmer Details"
+        subtitle="Full profile across all four data tables."
+        action="Back"
+        onAction={onBack}
+      />
+
+      {detailState.status !== 'success' && (
+        <p className={`form-hint form-hint--${detailState.status === 'loading' ? 'saving' : 'error'}`}>
+          {detailState.message}
+        </p>
+      )}
+
+      {detailState.status === 'success' && (
+        <div className="farmer-full-detail-grid">
+
+          {/* ── Card 1: Basic Info ── */}
+          <section className="farmer-detail-section">
+            <div className="farmer-detail-section__header">
+              <span className="farmer-detail-section__icon">🪪</span>
+              <div>
+                <h3>Basic Information</h3>
+                <p>Identity & subsidy details from farmer_records</p>
+              </div>
+            </div>
+            <div className="farmer-detail-grid">
+              <div><span>Aadhar ID</span><strong>{farmer.aadhar_id || '—'}</strong></div>
+              <div><span>Name</span><strong>{farmer.name || '—'}</strong></div>
+              <div><span>Village</span><strong>{farmer.village || '—'}</strong></div>
+              <div><span>District</span><strong>{farmer.district || '—'}</strong></div>
+              <div><span>Fertilizer Limit</span><strong>{farmer.limit != null ? `${farmer.limit} kg` : '—'}</strong></div>
+            </div>
+          </section>
+
+          {/* ── Card 2: Land Records ── */}
+          <section className="farmer-detail-section">
+            <div className="farmer-detail-section__header">
+              <span className="farmer-detail-section__icon">🌾</span>
+              <div>
+                <h3>Land Records</h3>
+                <p>Registered land parcels from land_records</p>
+              </div>
+            </div>
+            {land.length === 0 ? (
+              <p className="farmer-detail-empty">No land records found.</p>
+            ) : (
+              <div className="farmer-detail-grid">
+                {land.map((row, i) => (
+                  <div key={row.id}>
+                    <span>Parcel {i + 1}</span>
+                    <strong>{row.land_area != null ? `${row.land_area} acres` : '—'}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* ── Card 3: Crop Records ── */}
+          <section className="farmer-detail-section">
+            <div className="farmer-detail-section__header">
+              <span className="farmer-detail-section__icon">🌱</span>
+              <div>
+                <h3>Crop Records</h3>
+                <p>Season & crop data from crop_records</p>
+              </div>
+            </div>
+            {crops.length === 0 ? (
+              <p className="farmer-detail-empty">No crop records found.</p>
+            ) : (
+              <div className="crop-records-list">
+                {crops.map((row) => (
+                  <div key={row.id} className="crop-record-item">
+                    <div className="crop-record-season">
+                      <span>Season</span>
+                      <strong>{row.season || '—'}</strong>
+                    </div>
+                    <div className="crop-record-types">
+                      {(row.crop_types || []).map((crop) => (
+                        <span key={crop} className="crop-tag">{crop}</span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* ── Card 4: Soil Health ── */}
+          <section className="farmer-detail-section">
+            <div className="farmer-detail-section__header">
+              <span className="farmer-detail-section__icon">🧪</span>
+              <div>
+                <h3>Soil Health</h3>
+                <p>NPK nutrient levels from soilhealth_records</p>
+              </div>
+            </div>
+            {soilHealth.length === 0 ? (
+              <p className="farmer-detail-empty">No soil health records found.</p>
+            ) : (
+              soilHealth.map((row) => (
+                <div key={row.id} className="npk-section">
+                  <NpkBar label="Nitrogen (N)"   value={row.nitrogen}   max={400} color="#22c55e" />
+                  <NpkBar label="Phosphorus (P)" value={row.phosphorus} max={250} color="#3b82f6" />
+                  <NpkBar label="Potassium (K)"  value={row.potassium}  max={300} color="#f59e0b" />
+                </div>
+              ))
+            )}
+          </section>
+
+        </div>
+      )}
+    </section>
+  );
+}
+
 function FarmerRecordsPage() {
   const [farmers, setFarmers] = useState([]);
   const [state, setState] = useState({ status: 'loading', message: 'Loading farmer records...' });
-  const [selectedFarmer, setSelectedFarmer] = useState(null);
+  const [selectedAadhar, setSelectedAadhar] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDistrict, setSelectedDistrict] = useState('All Districts');
-  const [selectedStatus, setSelectedStatus] = useState('All Status');
-  const [farmerMetrics, setFarmerMetrics] = useState({
-    totalFarmers: 8752,
-    activeFarmers: 7210,
-  });
+  const [farmerMetrics, setFarmerMetrics] = useState({ totalFarmers: 0, activeFarmers: 0 });
 
   useEffect(() => {
     let isMounted = true;
@@ -1220,174 +1375,88 @@ function FarmerRecordsPage() {
       try {
         const response = await fetch(`${API_BASE_URL}/api/farmer-records/metrics`);
         const result = await readJsonResponse(response);
-
-        if (!response.ok) {
-          throw new Error(result.error || 'Unable to load farmer metrics.');
-        }
-
-        if (isMounted) {
-          setFarmerMetrics({
-            totalFarmers: result.totalFarmers ?? 0,
-            activeFarmers: result.activeFarmers ?? 0,
-          });
-        }
+        if (!response.ok) throw new Error(result.error || 'Unable to load farmer metrics.');
+        if (isMounted) setFarmerMetrics({ totalFarmers: result.totalFarmers ?? 0, activeFarmers: result.activeFarmers ?? 0 });
       } catch (error) {
         console.error('Unable to load farmer metrics:', error);
       }
     }
 
+    async function loadFarmers() {
+      try {
+        setState({ status: 'loading', message: 'Loading farmer records...' });
+        const response = await fetch(`${API_BASE_URL}/api/farmer-records/`);
+        const result = await readJsonResponse(response);
+        if (!response.ok) throw new Error(result.error || 'Unable to load farmers.');
+        if (isMounted) {
+          setFarmers(result.farmers || []);
+          setState({ status: 'success', message: (result.farmers || []).length ? '' : 'No farmer records found.' });
+        }
+      } catch (error) {
+        if (isMounted) setState({ status: 'error', message: error.message || 'Failed to load farmer records.' });
+      }
+    }
+
     loadFarmerMetrics();
+    loadFarmers();
 
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    setState({ status: 'loading', message: 'Loading farmer records...' });
-    const timer = setTimeout(() => {
-      const loadedFarmers = buildFarmerAnalysisRecords();
-      setFarmers(loadedFarmers);
-      setState({ status: 'success', message: loadedFarmers.length ? '' : 'No farmer records found.' });
-    }, 120);
-    return () => clearTimeout(timer);
+    return () => { isMounted = false; };
   }, []);
 
   const districts = useMemo(
-    () => ['All Districts', ...Array.from(new Set(farmers.map((farmer) => farmer.district).filter(Boolean)))],
+    () => ['All Districts', ...Array.from(new Set(farmers.map((f) => f.district).filter(Boolean)))],
     [farmers]
   );
 
   const filteredFarmers = useMemo(() => {
-    const normalizedSearch = searchTerm.trim().toLowerCase();
-
-    return farmers.filter((record) => {
-      const aadharNumber = record.id.replace(/\s/g, '');
-      const searchableText = `${record.id} ${aadharNumber} ${record.name}`.toLowerCase();
-      const compactSearchableText = searchableText.replace(/\s/g, '');
-      const compactSearch = normalizedSearch.replace(/\s/g, '');
-      const matchesSearch = !normalizedSearch || searchableText.includes(normalizedSearch) || compactSearchableText.includes(compactSearch);
-      const matchesDistrict = selectedDistrict === 'All Districts' || record.district === selectedDistrict;
-      const matchesStatus = selectedStatus === 'All Status' || record.status === selectedStatus;
-
-      return matchesSearch && matchesDistrict && matchesStatus;
+    const norm = searchTerm.trim().toLowerCase();
+    return farmers.filter((f) => {
+      const hay = `${f.aadhar_id} ${f.name} ${f.village} ${f.district}`.toLowerCase();
+      const matchSearch = !norm || hay.includes(norm) || hay.replace(/\s/g, '').includes(norm.replace(/\s/g, ''));
+      const matchDistrict = selectedDistrict === 'All Districts' || f.district === selectedDistrict;
+      return matchSearch && matchDistrict;
     });
-  }, [farmers, searchTerm, selectedDistrict, selectedStatus]);
+  }, [farmers, searchTerm, selectedDistrict]);
 
-  if (selectedFarmer) {
-    return (
-      <section className="page-content">
-        <PageTitle
-          title="Farmer Details"
-          subtitle="Review the selected farmer record."
-          action="Back"
-          onAction={() => setSelectedFarmer(null)}
-        />
-
-        <section className="farmer-detail-card farmer-detail-card--page" aria-live="polite">
-          <div className="farmer-detail-card__header">
-            <div>
-              <p>Farmer Details</p>
-              <h3>{selectedFarmer.name}</h3>
-            </div>
-            <span className={`risk-pill risk-${selectedFarmer.riskLevel.toLowerCase()}`}>{selectedFarmer.riskLevel} Risk</span>
-          </div>
-          <div className="farmer-detail-grid">
-            <div><span>Aadhar Card ID</span><strong>{selectedFarmer.aadharCardId}</strong></div>
-            <div><span>District</span><strong>{selectedFarmer.district}</strong></div>
-            <div><span>Last Transaction</span><strong>{selectedFarmer.lastTransaction}</strong></div>
-            <div><span>Status</span><strong>{selectedFarmer.status}</strong></div>
-            <div><span>Land Size</span><strong>{selectedFarmer.landSize}</strong></div>
-            <div><span>Crop Type</span><strong>{selectedFarmer.cropType}</strong></div>
-            <div><span>Fertilizer Type</span><strong>{selectedFarmer.fertilizerType}</strong></div>
-            <div><span>Total Received</span><strong>{selectedFarmer.totalReceived}</strong></div>
-            <div><span>Monthly Limit</span><strong>{selectedFarmer.monthlyLimit}</strong></div>
-            <div><span>Fertilizers Needed</span><strong>{selectedFarmer.fertilizersNeeded}</strong></div>
-          </div>
-          <div className="farmer-detail-reason">
-            <span>Reason</span>
-            <p>{selectedFarmer.reason}</p>
-          </div>
-        </section>
-
-        <section className="farmer-transactions-panel">
-          <div className="farmer-transactions-panel__header">
-            <h3>Transactions</h3>
-            <p>Recent fertilizer transactions for this farmer.</p>
-          </div>
-          <DataTable
-            columns={['Date Time', 'Dealer', 'Fertilizer Name', 'Batch Number', 'Bag ID', 'KG']}
-            rows={selectedFarmer.transactions}
-          />
-        </section>
-      </section>
-    );
+  if (selectedAadhar) {
+    return <FarmerDetailPanel aadharId={selectedAadhar} onBack={() => setSelectedAadhar(null)} />;
   }
 
   return (
     <section className="page-content">
-      <PageTitle title="Farmer Records" subtitle="View and manage farmer details and transaction history." action="Export" />
+      <PageTitle title="Farmer Records" subtitle="View farmer profiles across all four data tables." />
       <div className="filter-row">
         <input
           type="search"
           value={searchTerm}
           onChange={(event) => setSearchTerm(event.target.value)}
-          placeholder="Search by farmer name or Aadhaar number..."
+          placeholder="Search by name, Aadhaar, village, district..."
           aria-label="Search farmer records"
         />
         <select value={selectedDistrict} onChange={(event) => setSelectedDistrict(event.target.value)}>
           {districts.map((district) => <option key={district}>{district}</option>)}
         </select>
-        <select value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)}>
-          <option>All Status</option>
-          <option>Active</option>
-          <option>Inactive</option>
-        </select>
-        <button type="button" className="filter-button">Filters</button>
       </div>
       {state.status !== 'success' && (
         <p className={`form-hint form-hint--${state.status === 'loading' ? 'saving' : 'error'}`}>{state.message}</p>
       )}
       <div className="metric-grid">
-        <MetricCard icon="user" label="Total Farmers" value={farmerMetrics.totalFarmers.toLocaleString('en-IN')} accent="teal" />
-        <MetricCard icon="document" label="Total Transactions" value="18,540" accent="blue" />
-        <MetricCard icon="warning" label="Active Farmers" value={farmerMetrics.activeFarmers.toLocaleString('en-IN')} accent="orange" />
+        <MetricCard icon="user"     label="Total Farmers"  value={farmerMetrics.totalFarmers.toLocaleString('en-IN')}  accent="teal"   />
+        <MetricCard icon="document" label="Total Records"   value={farmers.length.toLocaleString('en-IN')}             accent="blue"   />
+        <MetricCard icon="warning"  label="Filtered View"  value={filteredFarmers.length.toLocaleString('en-IN')}      accent="orange" />
       </div>
       <DataTable
-        columns={['Aadhar Card ID', 'Farmer Name', 'District', 'Last Transaction', 'Fertilizer Received', 'Total Received', 'Status', 'Action']}
-        rows={filteredFarmers.map((record) => [
-          record.id,
-          record.name,
-          record.district,
-          formatDate(record.lastPurchase),
-          record.fertilizerType,
-          `${record.fertilizerPurchasedKg} kg`,
-          record.status,
+        columns={['Aadhar ID', 'Name', 'Village', 'District', 'Limit (kg)', 'Action']}
+        rows={filteredFarmers.map((f) => [
+          f.aadhar_id,
+          f.name,
+          f.village  || '—',
+          f.district || '—',
+          f.limit    != null ? String(f.limit) : '—',
           'View Details',
         ])}
-        footer={`Showing ${filteredFarmers.length} records`}
-        onAction={(row) => {
-          const detail = {
-            ...(farmerDetailsByAadhar[row[0]] || {
-              landSize: '2 acres',
-              cropType: 'Wheat',
-              monthlyLimit: row[5],
-              riskLevel: row[6] === 'Active' ? 'Low' : 'Medium',
-              reason: 'Hardcoded demo details for this farmer record.',
-            }),
-            aadharCardId: row[0],
-            name: row[1],
-            district: row[2],
-            lastTransaction: row[3],
-            fertilizerType: row[4],
-            totalReceived: row[5],
-            status: row[6],
-            fertilizersNeeded: 'Not set',
-          };
-
-          detail.transactions = getFarmerTransactions(row[0], row[3], row[4], row[5]);
-          setSelectedFarmer(detail);
-        }}
+        footer={`Showing ${filteredFarmers.length} of ${farmers.length} records`}
+        onAction={(row) => setSelectedAadhar(row[0])}
       />
     </section>
   );
