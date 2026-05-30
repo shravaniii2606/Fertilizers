@@ -33,7 +33,7 @@ async function getFarmerByAadhar(req, res) {
     const { data, error } = await supabase
       .from(farmersTable)
       .select('*')
-      .eq('aadhar_card_id', aadhar)
+      .eq('aadhar_id', aadhar)
       .single();
     if (error) {
       if (error.code === 'PGRST116') { // Not found
@@ -42,8 +42,7 @@ async function getFarmerByAadhar(req, res) {
       return res.status(500).json({ error: error.message });
     }
     // Normalize the aadhar field name for the frontend
-    const farmer = { ...data, aadhar: data.aadhar_card_id };
-    delete farmer.aadhar_card_id;
+    const farmer = { ...data, aadhar: data.aadhar_id };
     return res.status(200).json({ farmer });
   } catch (error) {
     const causeMessage = error.cause?.message || error.cause?.code || null;

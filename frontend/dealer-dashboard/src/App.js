@@ -20,9 +20,9 @@ const translations = {
     brandLabel: 'Dashboard',
     sidebarDashboard: 'Dashboard',
     sidebarScan: 'Scan batch',
-    sidebarPrevious: 'View previous records',
+    sidebarPrevious: 'Transaction history',
     sidebarSell: 'Sell',
-    sidebarHistory: 'History',
+    sidebarHistory: 'Batches Scanned',
     sidebarAlerts: 'Alerts',
     sidebarSettings: 'Settings',
     pageLabel: 'Dealer Dashboard',
@@ -657,10 +657,13 @@ function App() {
   const [dealerDetails, setDealerDetails] = useState(dealerDetailsByLanguage.en);
   const [isEditingDealer, setIsEditingDealer] = useState(false);
   const [scanRecords, setScanRecords] = useState([]);
+  const [saleHistory, setSaleHistory] = useState([]);
+const [saleHistoryStatus, setSaleHistoryStatus] = useState({ status: 'idle', message: '' });
   const [recordsStatus, setRecordsStatus] = useState({
     status: 'idle',
     message: '',
   });
+  const [selectedScanRecord, setSelectedScanRecord] = useState(null);
   const texts = translations[language];
 
   const digitMap = {
@@ -744,7 +747,18 @@ function App() {
       });
     }
   };
-
+const loadSaleHistory = async () => {
+  try {
+    setSaleHistoryStatus({ status: 'loading', message: 'Loading sales history...' });
+    const response = await fetch(`${API_BASE_URL}/api/farmer-transactions`);
+    const payload = await readJsonResponse(response);
+    if (!response.ok) throw new Error(payload.error || 'Unable to load sales history.');
+    setSaleHistory(payload.transactions || []);
+    setSaleHistoryStatus({ status: 'success', message: '' });
+  } catch (error) {
+    setSaleHistoryStatus({ status: 'error', message: error.message });
+  }
+};
   async function saveScanRecord(decodedText, batch, extraInfo = {}) {
     try {
       const decodedPayload = parseDecodedPayload(decodedText);
@@ -774,10 +788,9 @@ function App() {
   }
 
   useEffect(() => {
-    if (currentPage === 'previous') {
-      loadScanRecords();
-    }
-  }, [currentPage]);
+  if (currentPage === 'previous') loadScanRecords();
+  if (currentPage === 'history') loadSaleHistory();
+}, [currentPage]);
 
   return (
     <div className="dealer-dashboard">
@@ -941,49 +954,51 @@ function App() {
 )}
 
         {currentPage === 'history' && (
-          <>
-            <header className="top-bar">
-              <div>
-                <p className="page-label">{texts.pageLabel}</p>
-                <h2>{texts.salesHistory}</h2>
-                <p className="subtitle">{texts.salesHistorySubtitle}</p>
-              </div>
-            </header>
-            <section className="records-section">
-              {recordsStatus.status === 'loading' && <p>{recordsStatus.message}</p>}
-              {recordsStatus.status === 'error' && <p className="form-hint form-hint--error">{recordsStatus.message}</p>}
-              {recordsStatus.status !== 'loading' && scanRecords.length > 0 && (
-                <div className="table-wrapper">
-                  <table className="records-table">
-                    <thead>
-                      <tr>
-                        <th>{texts.batchNumber}</th>
-                        <th>{texts.productName}</th>
-                        <th>{texts.bagWeight}</th>
-                        <th>{texts.status}</th>
-                        <th>{texts.scannedAt}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {scanRecords.map((record) => (
-                        <tr key={record.id}>
-                          <td data-label="Batch Number">{record.batch_number || 'N/A'}</td>
-                          <td data-label="Product">{record.product_name || 'N/A'}</td>
-                          <td data-label="Weight">{record.bag_weight || 'N/A'}</td>
-                          <td data-label="Status">{record.status || 'N/A'}</td>
-                          <td data-label="Scanned At">{new Date(record.scanned_at).toLocaleString() || 'N/A'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              {recordsStatus.status !== 'loading' && scanRecords.length === 0 && (
-                <p>{texts.noRecords || 'No history records yet.'}</p>
-              )}
-            </section>
-          </>
-        )}
+  <>
+    <header className="top-bar">
+      <div>
+        <p className="page-label">{texts.pageLabel}</p>
+        <h2>{texts.salesHistory}</h2>
+        <p className="subtitle">{texts.salesHistorySubtitle}</p>
+      </div>
+    </header>
+    <section className="records-section">
+      {saleHistoryStatus.status === 'loading' && <p>{saleHistoryStatus.message}</p>}
+      {saleHistoryStatus.status === 'error' && <p className="form-hint form-hint--error">{saleHistoryStatus.message}</p>}
+      {saleHistoryStatus.status === 'success' && saleHistory.length === 0 && (
+        <p>No sales recorded yet.</p>
+      )}
+      {saleHistory.length > 0 && (
+        <div className="records-table-wrap">
+          <table className="records-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Farmer Aadhar</th>
+                <th>Product</th>
+                <th>Batch</th>
+                <th>Quantity (kg)</th>
+                <th>Season</th>
+              </tr>
+            </thead>
+            <tbody>
+              {saleHistory.map((record) => (
+                <tr key={record.id}>
+                  <td>{new Date(record.created_at).toLocaleString('en-IN')}</td>
+                  <td>{record.farmer_aadhar_card_id}</td>
+                  <td>{record.product_name || 'N/A'}</td>
+                  <td>{record.batch_number || 'N/A'}</td>
+                  <td>{record.quantity_kg}</td>
+                  <td>{record.season || 'N/A'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  </>
+)}
 
         {currentPage === 'scan' && (
           <>
@@ -999,69 +1014,109 @@ function App() {
         )}
 
         {currentPage === 'previous' && (
-          <>
-            <header className="top-bar">
+  <>
+    <header className="top-bar">
+      <div>
+        <p className="page-label">{texts.pageLabel}</p>
+        <h2>{texts.previousRecords}</h2>
+        <p className="subtitle">{texts.previousRecordsSubtitle}</p>
+      </div>
+    </header>
+    <section className="records-section">
+      {recordsStatus.status === 'loading' && <p className="records-message">{recordsStatus.message}</p>}
+      {recordsStatus.status === 'error' && <p className="records-message error">{recordsStatus.message}</p>}
+      {recordsStatus.status === 'success' && scanRecords.length === 0 && (
+        <p className="records-message">{recordsStatus.message}</p>
+      )}
+
+      {scanRecords.length > 0 && (
+        <div className="records-table-wrap">
+          <table className="records-table">
+            <thead>
+              <tr>
+                <th>Scanned At</th>
+                <th>Bag ID</th>
+                <th>Batch Number</th>
+                <th>Product</th>
+                <th>Bags</th>
+                <th>Manufacturer</th>
+                <th>Weight</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {scanRecords.map((record) => (
+                <tr key={record.id}>
+                  <td>{formatDateTime(record.scanned_at)}</td>
+                  <td><span className="record-chip">{record.bag_id || 'N/A'}</span></td>
+                  <td>{record.batch_number || 'N/A'}</td>
+                  <td>{record.product_name || 'N/A'}</td>
+                  <td>{record.number_of_bags || 'N/A'}</td>
+                  <td>{record.manufacturer || 'N/A'}</td>
+                  <td>{record.bag_weight || 'N/A'}</td>
+                  <td>
+                    {record.farmer_aadhar_id ? (
+                      <button
+                        className="search-button"
+                        style={{ padding: '6px 14px', fontSize: '0.85rem' }}
+                        onClick={() => setSelectedScanRecord(record)}
+                      >
+                        View Details
+                      </button>
+                    ) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {selectedScanRecord && (
+        <div className="details-modal-backdrop" onClick={() => setSelectedScanRecord(null)}>
+          <div className="details-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="details-modal__header">
               <div>
-                <p className="page-label">{texts.pageLabel}</p>
-                <h2>{texts.previousRecords}</h2>
-                <p className="subtitle">{texts.previousRecordsSubtitle}</p>
+                <h3>Sale Details</h3>
+                <p>Bag and farmer information for this transaction</p>
               </div>
-            </header>
-            <section className="records-section">
-              {recordsStatus.status === 'loading' && <p className="records-message">{recordsStatus.message}</p>}
-              {recordsStatus.status === 'error' && <p className="records-message error">{recordsStatus.message}</p>}
-              {recordsStatus.status === 'success' && scanRecords.length === 0 && (
-                <p className="records-message">{recordsStatus.message}</p>
-              )}
-              {scanRecords.length > 0 && (
-                <div className="records-table-wrap">
-                  <table className="records-table">
-                    <thead>
-                      <tr>
-                        <th>Scanned At</th>
-                        <th>Bag ID</th>
-                        <th>Batch Number</th>
-                        <th>Product</th>
-                        <th>Bags</th>
-                        <th>Manufacturer</th>
-                        <th>Weight</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {scanRecords.map((record) => (
-                        <tr key={record.id}>
-                          <td data-label="Scanned At">{formatDateTime(record.scanned_at)}</td>
-                          <td data-label="Bag ID"><span className="record-chip">{record.bag_id || 'N/A'}</span></td>
-                          <td data-label="Batch Number">{record.batch_number || 'N/A'}</td>
-                          <td data-label="Product">{record.product_name || 'N/A'}</td>
-                          <td data-label="Bags">{record.number_of_bags || 'N/A'}</td>
-                          <td data-label="Manufacturer">{record.manufacturer || 'N/A'}</td>
-                          <td data-label="Weight">{record.bag_weight || 'N/A'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-          </>
-        )}
+              <button className="outline-action" onClick={() => setSelectedScanRecord(null)}>
+                Close
+              </button>
+            </div>
 
+            <div className="batch-detail-grid">
+              <div><span>Bag ID: </span><strong>{selectedScanRecord.bag_id || '—'}</strong></div>
+              <div><span>Batch Number: </span><strong>{selectedScanRecord.batch_number || '—'}</strong></div>
+              <div><span>Product: </span><strong>{selectedScanRecord.product_name || '—'}</strong></div>
+              <div><span>Weight: </span><strong>{selectedScanRecord.bag_weight || '—'}</strong></div>
+              <div><span>Status: </span><strong>{selectedScanRecord.status || '—'}</strong></div>
+              <div><span>Sold At: </span><strong>{formatDateTime(selectedScanRecord.scanned_at)}</strong></div>
+            </div>
+
+            <hr style={{ margin: '16px 0', opacity: 0.2 }} />
+            <h4 style={{ marginBottom: '12px' }}>Farmer Details</h4>
+
+            <div className="batch-detail-grid">
+              <div><span>Aadhar ID: </span><strong>{selectedScanRecord.farmer_aadhar_id || '—'}</strong></div>
+              <div><span>Name: </span><strong>{selectedScanRecord.farmer_name || '—'}</strong></div>
+              <div><span>Village: </span><strong>{selectedScanRecord.farmer_village || '—'}</strong></div>
+              <div><span>District: </span><strong>{selectedScanRecord.farmer_district || '—'}</strong></div>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </section>
+  </>
+)}
+                 
+                    
+
+                  
+            
+          
         
-
-
-
-
-
-
-
-
-
-
-
-
-
-
         {currentPage === 'alerts' && (
           <>
             <header className="top-bar">

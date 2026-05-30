@@ -1200,7 +1200,6 @@ function AlertsPage() {
     </section>
   );
 }
-
 function NpkBar({ label, value, max, color }) {
   const pct = Math.min(100, Math.round(((value || 0) / max) * 100));
   return (
@@ -1217,6 +1216,7 @@ function NpkBar({ label, value, max, color }) {
 function FarmerDetailPanel({ aadharId, onBack }) {
   const [detail, setDetail] = useState(null);
   const [detailState, setDetailState] = useState({ status: 'loading', message: 'Loading farmer details...' });
+  const [transactions, setTransactions] = useState([]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1228,6 +1228,9 @@ function FarmerDetailPanel({ aadharId, onBack }) {
         if (!response.ok) throw new Error(result.error || 'Unable to load farmer details.');
         if (isMounted) {
           setDetail(result);
+          const txResponse = await fetch(`${API_BASE_URL}/api/farmer-transactions/${encodeURIComponent(aadharId)}`);
+          const txResult = await readJsonResponse(txResponse);
+          if (txResponse.ok) setTransactions(txResult.transactions || []);
           setDetailState({ status: 'success', message: '' });
         }
       } catch (error) {
@@ -1354,12 +1357,50 @@ function FarmerDetailPanel({ aadharId, onBack }) {
             )}
           </section>
 
+          {/* ── Card 5: Transaction History ── */}
+          <section className="farmer-detail-section" style={{ gridColumn: '1 / -1' }}>
+            <div className="farmer-detail-section__header">
+              <span className="farmer-detail-section__icon">🧾</span>
+              <div>
+                <h3>Purchase History</h3>
+                <p>Real fertilizer transactions from farmer_transactions</p>
+              </div>
+            </div>
+            {transactions.length === 0 ? (
+              <p className="farmer-detail-empty">No transactions recorded yet.</p>
+            ) : (
+              <table className="records-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Dealer</th>
+                    <th>Product</th>
+                    <th>Batch</th>
+                    <th>Quantity</th>
+                    <th>Season</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {transactions.map((tx) => (
+                    <tr key={tx.id}>
+                      <td>{new Date(tx.created_at).toLocaleString('en-IN')}</td>
+                      <td>{tx.dealer_name || 'N/A'}</td>
+                      <td>{tx.product_name || 'N/A'}</td>
+                      <td>{tx.batch_number || 'N/A'}</td>
+                      <td>{tx.quantity_kg} kg</td>
+                      <td>{tx.season || 'N/A'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+
         </div>
       )}
     </section>
   );
 }
-
 function FarmerRecordsPage() {
   const [farmers, setFarmers] = useState([]);
   const [state, setState] = useState({ status: 'loading', message: 'Loading farmer records...' });

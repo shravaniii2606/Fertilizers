@@ -1,5 +1,22 @@
 const { getSupabaseClient } = require('../supabase');
 
+const FERTILIZER_REQUIREMENTS = {
+  Wheat:     50,
+  Mustard:   40,
+  Paddy:     60,
+  Soybean:   35,
+  Maize:     55,
+  Sunflower: 45,
+};
+
+function calculateLimit(landRecords, cropRecords) {
+  const totalLandArea = landRecords.reduce((sum, l) => sum + (l.land_area || 0), 0);
+  const allCrops = cropRecords.flatMap(c => c.crop_types || []);
+  const totalPerAcre = allCrops.reduce((sum, crop) => {
+    return sum + (FERTILIZER_REQUIREMENTS[crop] ?? 40); // 40 = default fallback
+  }, 0);
+  return Math.round(totalLandArea * totalPerAcre);
+}
 function getErrorMessage(error) {
   const causeMessage = error.cause?.message || error.cause?.code || null;
   if (causeMessage?.includes('ENOTFOUND') || error.message?.includes('ENOTFOUND')) {
@@ -37,16 +54,33 @@ async function listAllFarmers(req, res) {
   try {
     const supabase = getSupabaseClient();
 
-    const { data, error } = await supabase
-      .from('farmer_records')
-      .select('aadhar_id, name, village, district, limit, created_at')
-      .order('created_at', { ascending: false });
+    // Fetch farmers + their land and crop data in parallel
+    const [farmerRes, landRes, cropRes] = await Promise.all([
+      supabase
+        .from('farmer_records')
+        .select('aadhar_id, name, village, district, created_at')
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('land_records')
+        .select('aadhar_id, land_area'),
+      supabase
+        .from('crop_records')
+        .select('aadhar_id, crop_types'),
+    ]);
 
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
+    if (farmerRes.error) return res.status(500).json({ error: farmerRes.error.message });
 
-    return res.status(200).json({ farmers: data || [] });
+    // Compute limit for each farmer from their land + crop data
+    const farmers = farmerRes.data.map(farmer => {
+      const land  = (landRes.data  || []).filter(l => l.aadhar_id === farmer.aadhar_id);
+      const crops = (cropRes.data  || []).filter(c => c.aadhar_id === farmer.aadhar_id);
+      return {
+        ...farmer,
+        limit: calculateLimit(land, crops),
+      };
+    });
+
+    return res.status(200).json({ farmers });
   } catch (error) {
     console.error('List all farmers failed:', error);
     return res.status(500).json({ error: getErrorMessage(error) });
@@ -92,18 +126,35 @@ async function getFarmerDetails(req, res) {
       return res.status(500).json({ error: farmerRes.error.message });
     }
 
-    return res.status(200).json({
-      farmer:      farmerRes.data,
-      land:        landRes.data    || [],
-      crops:       cropRes.data    || [],
-      soilHealth:  soilRes.data    || [],
-    });
+    const land  = landRes.data  || [];
+const crops = cropRes.data  || [];
+
+const computedLimit = calculateLimit(land, crops);
+
+return res.status(200).json({
+  farmer:     { ...farmerRes.data, limit: computedLimit }, // overrides the DB hardcoded limit
+  land,
+  crops,
+  soilHealth: soilRes.data || [],
+});
   } catch (error) {
     console.error('Get farmer details failed:', error);
     return res.status(500).json({ error: getErrorMessage(error) });
   }
 }
-
+async function getAllTransactions(req, res) {
+  try {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from('farmer_transactions')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(200).json({ transactions: data || [] });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+}
 module.exports = {
   getFarmerRecordMetrics,
   listAllFarmers,

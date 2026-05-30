@@ -7,7 +7,12 @@ function getErrorMessage(error) {
   const causeMessage = error.cause?.message || error.cause?.code || null;
   return [error.message, causeMessage].filter(Boolean).join(' | ') || 'Unknown server error';
 }
-
+function getCurrentSeason() {
+  const month = new Date().getMonth() + 1; // 1-12
+  if (month >= 6 && month <= 10) return 'Kharif';
+  if (month >= 11 || month <= 3) return 'Rabi';
+  return 'Zaid';
+}
 async function getBagById(req, res) {
   try {
     const { bagId } = req.params;
@@ -87,7 +92,7 @@ async function purchaseBag(req, res) {
     const { data: farmer, error: farmerError } = await supabase
       .from(farmersTable)
       .select('*')
-      .eq('aadhar_card_id', farmer_aadhar)
+      .eq('aadhar_id', farmer_aadhar)
       .single();
 
     if (farmerError) {
@@ -97,19 +102,7 @@ async function purchaseBag(req, res) {
       return res.status(500).json({ error: farmerError.message });
     }
 
-    // 3. Update the farmer's total_received limit
-    const rawWeight = batch.bag_weight || '';
-    const parsedWeight = parseInt(rawWeight.replace(/[^0-9]/g, ''), 10) || 0;
-    const newTotalReceived = (farmer.total_received || 0) + parsedWeight;
-
-    const { error: farmerUpdateError } = await supabase
-      .from(farmersTable)
-      .update({ total_received: newTotalReceived })
-      .eq('aadhar_card_id', farmer_aadhar);
-
-    if (farmerUpdateError) {
-      return res.status(500).json({ error: farmerUpdateError.message });
-    }
+    
 
     // 4. Update the batch's qr_codes array to save the purchased info
     const updatedQrCodes = (batch.qr_codes || []).map((qr) => {
@@ -127,19 +120,41 @@ async function purchaseBag(req, res) {
     if (batchUpdateError) {
       return res.status(500).json({ error: batchUpdateError.message });
     }
-                // Insert purchase record into history
+       const rawWeight = batch.bag_weight || '';
+const parsedWeight = parseInt(rawWeight.replace(/[^0-9]/g, ''), 10) || 0;
+
+const { error: txError } = await supabase
+  .from('farmer_transactions')
+  .insert([{
+    farmer_aadhar_card_id: farmer_aadhar,
+    batch_number: batch.batch_number || null,
+    bag_id: bagId,
+    product_name: batch.product_name || null,
+    quantity_kg: parsedWeight,
+    season: getCurrentSeason(),
+  }]);
+
+if (txError) {
+  console.error('Failed to insert farmer transaction:', txError);
+} 
+    // Insert purchase record into history
         const { data: recordData, error: recordError } = await supabase
           .from('dealer_scan_records')
           .insert([
             {
               decoded_text: JSON.stringify({ bagId, farmer_aadhar }),
-              decoded_payload: { bagId, farmer_aadhar },
-              bag_id: bagId,
-              batch_number: batch.batch_number || null,
-              product_name: batch.product_name || null,
-              bag_weight: batch.bag_weight || null,
-              status: 'sold',
-              scanned_at: new Date().toISOString()
+    decoded_payload: { bagId, farmer_aadhar },
+    bag_id: bagId,
+    batch_number: batch.batch_number || null,
+    product_name: batch.product_name || null,
+    bag_weight: batch.bag_weight || null,
+    status: 'sold',
+    scanned_at: new Date().toISOString(),
+    // ── farmer details ──
+    farmer_aadhar_id: farmer_aadhar,
+    farmer_name:      farmer.name     || null,
+    farmer_village:   farmer.village  || null,
+    farmer_district:  farmer.district || null,
             }
           ])
           .select()

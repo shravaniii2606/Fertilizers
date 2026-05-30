@@ -12,12 +12,18 @@ const qrRoutes = require('./routes/qrRoutes');
 const farmerRoutes = require('./routes/farmerRoutes');
 const scanRecordRoutes = require('./routes/scanRecordRoutes');
 const bagRoutes = require('./routes/bagRoutes');
+const farmerTransactionRoutes = require('./routes/farmerTransactionRoutes');
+
 
 
 const app = express();
 const port = process.env.PORT || 5000;
 
-app.use(cors());
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://localhost:3001'],
+  credentials: true,
+}));
+app.use('/api/farmer-transactions', farmerTransactionRoutes);
 app.use(express.json());
 
 app.get('/', (req, res) => {
