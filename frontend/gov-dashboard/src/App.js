@@ -1184,19 +1184,73 @@ function AnalysisPage() {
 }
 
 function AlertsPage() {
+  const [alerts, setAlerts] = useState([]);
+  const [status, setStatus] = useState({ loading: false, message: '' });
+
+  useEffect(() => {
+    loadAlerts();
+  }, []);
+
+  const loadAlerts = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/ai/alerts`);
+      const data = await res.json();
+      setAlerts(data.alerts || []);
+    } catch (e) {
+      console.error('Failed to load alerts:', e);
+    }
+  };
+
+  const runAnalysis = async () => {
+    setStatus({ loading: true, message: 'Running AI analysis...' });
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/ai/run`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Analysis failed');
+      setStatus({ loading: false, message: `Analysis complete. ${data.count || 0} alerts generated.` });
+      loadAlerts();
+    } catch (e) {
+      setStatus({ loading: false, message: `Error: ${e.message}` });
+    }
+  };
+
   return (
     <section className="page-content">
-      <PageTitle title="Alerts" subtitle="View alerts and suspicious activities requiring attention." />
-      <div className="metric-grid">
-        <MetricCard icon="warning" label="Active Alerts" value="24" accent="orange" />
-        <MetricCard icon="bell" label="High Priority" value="6" accent="purple" />
-        <MetricCard icon="document" label="In Review" value="11" accent="blue" />
-        <MetricCard icon="grid" label="Resolved Today" value="7" accent="green" />
-      </div>
-      <DataTable
-        columns={['Alert ID', 'Issue', 'District', 'Priority', 'Status']}
-        rows={alertRows}
+      <PageTitle
+        title="Alerts"
+        subtitle="AI-powered anomaly detection for fertilizer distribution."
+        action={status.loading ? 'Running...' : 'Run AI Analysis'}
+        onAction={runAnalysis}
       />
+
+      {status.message && (
+        <p className={`form-hint form-hint--${status.message.startsWith('Error') ? 'error' : 'success'}`}>
+          {status.message}
+        </p>
+      )}
+
+      <div className="metric-grid">
+        <MetricCard icon="warning" label="Total Alerts" value={alerts.length} accent="orange" />
+        <MetricCard icon="bell"    label="High Priority" value={alerts.filter(a => a.severity === 'High').length} accent="purple" />
+        <MetricCard icon="document" label="Open" value={alerts.filter(a => a.status === 'Open').length} accent="blue" />
+        <MetricCard icon="grid"    label="Districts Affected" value={new Set(alerts.map(a => a.district)).size} accent="green" />
+      </div>
+
+      {alerts.length > 0 ? (
+        <DataTable
+          columns={['Farmer', 'District', 'Type', 'Message', 'Severity', 'Status']}
+          rows={alerts.map(a => [
+            a.farmer_name || a.farmer_aadhar,
+            a.district || '—',
+            a.alert_type?.replace(/_/g, ' ') || '—',
+            a.message,
+            a.severity,
+            a.status,
+          ])}
+        />
+      ) : (
+        <p className="form-hint">No alerts yet. Click "Run AI Analysis" to scan for anomalies.</p>
+      )}
     </section>
   );
 }

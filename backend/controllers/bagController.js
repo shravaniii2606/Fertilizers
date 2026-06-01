@@ -121,7 +121,27 @@ async function purchaseBag(req, res) {
       return res.status(500).json({ error: batchUpdateError.message });
     }
     const rawWeight = batch.bag_weight || '';
-    const parsedWeight = parseInt(rawWeight.replace(/[^0-9]/g, ''), 10) || 0;
+const parsedWeight = parseInt(rawWeight.replace(/[^0-9]/g, ''), 10) || 0;
+
+// Insert into farmer_transactions
+const { data: txData, error: txError } = await supabase
+  .from('farmer_transactions')
+  .insert([{
+    farmer_aadhar_card_id: farmer_aadhar,
+    dealer_name:           farmer.name ? null : null, // dealer name not available here, set via req.body if needed
+    fertilizer_name:       batch.product_name || null,
+    batch_number:          batch.batch_number || null,
+    bag_id:                bagId,
+    quantity_kg:           parsedWeight,
+    season:                getCurrentSeason(),
+  }]);
+
+if (txError) {
+  console.error('farmer_transactions insert failed:', txError.message);
+} else {
+  console.log('farmer_transactions insert success');
+}
+
 
 
     // Insert purchase record into history
