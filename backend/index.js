@@ -7,23 +7,36 @@ require('dotenv').config({
 const express = require('express');
 const cors = require('cors');
 const batchRoutes = require('./routes/batchRoutes');
+const farmerRecordRoutes = require('./routes/farmerRecordRoutes');
 const qrRoutes = require('./routes/qrRoutes');
 const farmerRoutes = require('./routes/farmerRoutes');
+const scanRecordRoutes = require('./routes/scanRecordRoutes');
+const bagRoutes = require('./routes/bagRoutes');
+const farmerTransactionRoutes = require('./routes/farmerTransactionRoutes');
+const aiAnalysisRoutes = require('./routes/aiAnalysisRoutes');
 
 const app = express();
 const port = process.env.PORT || 5000;
 
-app.use(cors());
-app.use(express.json());
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://localhost:3001'],
+  credentials: true,
+}));
+
+app.use(express.json()); // ← must be before all routes
 
 app.get('/', (req, res) => {
   res.send('Backend running');
 });
 
 app.use('/api/batches', batchRoutes);
+app.use('/api/farmer-records', farmerRecordRoutes);
 app.use('/api/qrcodes', qrRoutes);
 app.use('/api/farmers', farmerRoutes);
-
+app.use('/api/scan-records', scanRecordRoutes);
+app.use('/api/bags', bagRoutes);
+app.use('/api/farmer-transactions', farmerTransactionRoutes); // ← after express.json()
+app.use('/api/ai', aiAnalysisRoutes);
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });

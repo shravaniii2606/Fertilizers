@@ -1,4 +1,4 @@
-﻿import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import mockFarmerRecords from './mockFarmerRecords';
@@ -114,64 +114,124 @@ const cropFertilizerRules = {
   paddy: ['urea', 'npk 20:20:0:13'],
 };
 
-function runRuleEngine(record) {
-  let riskScore = 0;
-  const triggeredRules = [];
+function getFarmerTransactions(farmerId, lastTransaction, fertilizerType, totalReceived) {
+  const transactionTimes = ['10:30 AM', '12:15 PM', '02:40 PM', '04:05 PM', '05:25 PM'];
+  const transactionDates = [
+    lastTransaction,
+    '16 May 2025',
+    '12 May 2025',
+    '08 May 2025',
+    '04 May 2025',
+  ];
+  const totalKg = Number.parseFloat(String(totalReceived).replace(/[^\d.]/g, '')) || 250;
+  const kgPerTransaction = Math.max(1, Math.round(totalKg / 5));
+  const farmerSuffix = farmerId.replace(/\D/g, '').slice(-5) || '10000';
 
-  if (record.purchases > 5) {
-    riskScore += 25;
-    triggeredRules.push('High purchase frequency');
+  return transactionTimes.map((time, index) => [
+    `${transactionDates[index]}, ${time}`,
+    'Raj Singh Dealer',
+    fertilizerType,
+    `BATCH-${farmerSuffix}-${String(index + 1).padStart(2, '0')}`,
+    `${farmerId}-BAG-${String(index + 1).padStart(3, '0')}`,
+    `${kgPerTransaction} kg`,
+  ]);
+}
+
+function getFarmerRiskProfile(record) {
+  const triggeredRules = [];
+  const alerts = [];
+  let riskScore = 18;
+
+  if (record.fertilizerPurchasedKg > record.monthlyLimitKg) {
+    triggeredRules.push('Monthly fertilizer limit exceeded');
+    alerts.push({
+      rule: 'Limit exceeded',
+      message: `${record.name} purchased ${record.fertilizerPurchasedKg} kg against a ${record.monthlyLimitKg} kg monthly limit.`,
+      severity: 'High',
+    });
+    riskScore += 34;
   }
 
-  if (record.fertilizerPurchasedKg > record.districtAverageKg * 2) {
-    riskScore += 30;
-    triggeredRules.push('Unusual quantity');
+  if (record.fertilizerPurchasedKg > record.districtAverageKg * 1.8) {
+    triggeredRules.push('Above district average purchase');
+    alerts.push({
+      rule: 'District average anomaly',
+      message: `${record.name} is above the ${record.district} district average of ${record.districtAverageKg} kg.`,
+      severity: 'Medium',
+    });
+    riskScore += 24;
   }
 
   if (record.dealersUsed > 2) {
-    riskScore += 15;
     triggeredRules.push('Multiple dealer purchases');
+    alerts.push({
+      rule: 'Multiple dealers',
+      message: `${record.name} purchased through ${record.dealersUsed} dealers in the review period.`,
+      severity: 'Medium',
+    });
+    riskScore += 18;
   }
 
-  const cropKey = String(record.cropType || '').toLowerCase();
-  const fertilizerKey = String(record.fertilizerType || '').toLowerCase();
-  if (cropFertilizerRules[cropKey] && !cropFertilizerRules[cropKey].includes(fertilizerKey)) {
+  if (record.purchases > 5) {
+    triggeredRules.push('High purchase frequency');
+    alerts.push({
+      rule: 'Frequent purchases',
+      message: `${record.name} made ${record.purchases} fertilizer purchases recently.`,
+      severity: 'Medium',
+    });
+    riskScore += 12;
+  }
+
+  if (record.status === 'Inactive') {
+    triggeredRules.push('Inactive farmer transaction activity');
+    alerts.push({
+      rule: 'Inactive status',
+      message: `${record.name} has recent fertilizer activity while marked inactive.`,
+      severity: 'High',
+    });
     riskScore += 20;
-    triggeredRules.push('Crop-fertilizer mismatch');
   }
 
-  if (record.previous30DayAvgKg > 0 && record.fertilizerPurchasedKg > record.previous30DayAvgKg * 1.8) {
-    riskScore += 20;
-    triggeredRules.push('Sudden purchase spike');
-  }
-
-  const boundedRisk = Math.max(0, Math.min(100, riskScore));
-  const severity = boundedRisk >= 70 ? 'High' : boundedRisk >= 40 ? 'Medium' : 'Low';
+  const boundedRiskScore = Math.min(99, riskScore);
+  const severity = boundedRiskScore >= 70 ? 'High' : boundedRiskScore >= 45 ? 'Medium' : 'Low';
 
   return {
-    riskScore: boundedRisk,
+    riskScore: boundedRiskScore,
     severity,
-    suspicious: boundedRisk >= 40,
+    suspicious: triggeredRules.length > 0,
     triggeredRules,
-    recommendationTags: triggeredRules.length > 0 ? ['Field Verification', 'Dealer Cross-check'] : ['Routine Monitoring'],
-    alerts: triggeredRules.map((rule) => ({
-      rule,
-      severity,
-      message: `${record.name} triggered: ${rule}`,
-    })),
+    alerts,
   };
 }
 
 function buildFarmerAnalysisRecords() {
   return mockFarmerRecords.map((record) => {
-    const ruleResult = runRuleEngine(record);
+    const riskProfile = getFarmerRiskProfile(record);
+    const aiInsight = riskProfile.suspicious
+      ? `${record.name} needs review because ${riskProfile.triggeredRules.join(', ').toLowerCase()}.`
+      : `${record.name} is within expected fertilizer distribution limits.`;
+
     return {
       ...record,
-      ...ruleResult,
-      aiInsight: `${record.name} purchase behavior is ${(record.fertilizerPurchasedKg / record.districtAverageKg).toFixed(1)}x district average in ${record.district}.`,
+      ...riskProfile,
+      aiInsight,
     };
   });
 }
+
+const farmerDetailsByAadhar = Object.fromEntries(
+  buildFarmerAnalysisRecords().map((record) => [
+    record.id,
+    {
+      landSize: record.landSize,
+      cropType: record.cropType,
+      monthlyLimit: `${record.monthlyLimitKg} kg`,
+      riskLevel: record.severity,
+      reason: record.triggeredRules.join(', ') || 'No risk rule triggered for this farmer.',
+      fertilizersNeeded: cropFertilizerRules[record.cropType.toLowerCase()]?.join(', ') || record.fertilizerType,
+    },
+  ])
+);
 
 function Icon({ type }) {
   const common = { width: 34, height: 34, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '1.8', strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true };
@@ -362,6 +422,7 @@ function AddPage() {
   const [showBatchForm, setShowBatchForm] = useState(false);
   const [generatedBagIds, setGeneratedBagIds] = useState([]);
   const [generatedQRCodes, setGeneratedQRCodes] = useState([]);
+  const [generatedBatchQRCode, setGeneratedBatchQRCode] = useState('');
   const [saveState, setSaveState] = useState({ status: 'idle', message: '' });
   const [expiryError, setExpiryError] = useState('');
   const [batchForm, setBatchForm] = useState({
@@ -385,6 +446,10 @@ function AddPage() {
 
     if (generatedQRCodes.length > 0) {
       setGeneratedQRCodes([]);
+    }
+
+    if (generatedBatchQRCode) {
+      setGeneratedBatchQRCode('');
     }
 
     if (name === 'productExpiry') {
@@ -414,6 +479,7 @@ function AddPage() {
     if (!Number.isInteger(bagCount) || bagCount <= 0) {
       setGeneratedBagIds([]);
       setGeneratedQRCodes([]);
+      setGeneratedBatchQRCode('');
       setSaveState({ status: 'error', message: 'Enter a valid number of bags before generating.' });
       return;
     }
@@ -445,6 +511,9 @@ function AddPage() {
           productName: batchForm.productName,
           manufacturer: batchForm.manufacturer,
           bagWeight: batchForm.bagWeight,
+          numberOfBags: bagCount,
+          productPrice: batchForm.productPrice,
+          productExpiry: batchForm.productExpiry,
           bagIds,
         }),
       });
@@ -456,7 +525,9 @@ function AddPage() {
       }
 
       const qrCodes = qrResult.qrCodes || [];
+      const batchQrCodeDataUrl = qrResult.batchQrCodeDataUrl || '';
       setGeneratedQRCodes(qrCodes);
+      setGeneratedBatchQRCode(batchQrCodeDataUrl);
 
       const batchPayload = {
         batchNumber: batchForm.batchNumber,
@@ -468,6 +539,7 @@ function AddPage() {
         bagWeight: batchForm.bagWeight,
         bagIds,
         qrCodes,
+        batchQrCode: batchQrCodeDataUrl,
       };
 
       const saveResponse = await fetch(`${API_BASE_URL}/api/batches`, {
@@ -603,6 +675,26 @@ function AddPage() {
         </div>
       </div>
 
+      {generatedBatchQRCode && (
+        <section className="generated-panel qr-panel batch-qr-panel">
+          <div className="generated-panel__header">
+            <h3>Batch QR Code</h3>
+            <p>This QR code contains all batch-level details (including total bags, price, and expiry) and can be scanned to view or process the entire batch.</p>
+          </div>
+          <div className="batch-qr-container" style={{ display: 'flex', justifyContent: 'center', margin: '20px 0' }}>
+            <article className="generated-bag-card qr-card batch-qr-card" style={{ maxWidth: '280px', width: '100%', textAlign: 'center', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+              <img src={generatedBatchQRCode} alt={`QR for batch ${batchForm.batchNumber}`} className="qr-image batch-qr-image" style={{ width: '100%', height: 'auto', marginBottom: '15px', borderRadius: '8px' }} />
+              <strong style={{ display: 'block', fontSize: '1.1rem', marginBottom: '5px' }}>Batch: {batchForm.batchNumber}</strong>
+              <small style={{ display: 'block', color: 'rgba(255, 255, 255, 0.6)', marginBottom: '5px' }}>Includes: {batchForm.numberOfBags} Bags</small>
+              {batchForm.productName && <span className="batch-qr-info" style={{ display: 'block', fontSize: '0.9rem', marginBottom: '15px' }}>Product: {batchForm.productName}</span>}
+              <a href={generatedBatchQRCode} download={`BATCH-${batchForm.batchNumber}.png`} className="table-action qr-download" style={{ display: 'inline-block', width: '100%', padding: '10px', borderRadius: '6px', textDecoration: 'none', fontWeight: 'bold' }}>
+                Download Batch QR
+              </a>
+            </article>
+          </div>
+        </section>
+      )}
+
       {generatedBagIds.length > 0 && (
         <section className="generated-panel">
           <div className="generated-panel__header">
@@ -632,7 +724,7 @@ function AddPage() {
               <article key={qrCode.bagId} className="generated-bag-card qr-card">
                 <img src={qrCode.qrCodeDataUrl} alt={`QR for ${qrCode.bagId}`} className="qr-image" />
                 <strong>{qrCode.bagId}</strong>
-                <small>Status: {qrCode.status || 'not sent'}</small>
+                <small>Status: {qrCode.status || 'not scanned'}</small>
                 <a href={qrCode.qrCodeDataUrl} download={`${qrCode.bagId}.png`} className="table-action qr-download">
                   Download QR
                 </a>
@@ -788,6 +880,22 @@ function PreviousPage() {
               <div><span>Created On</span><strong>{formatDate(selectedBatch.created_at)}</strong></div>
             </div>
 
+            {selectedBatch.batch_qr_code && (
+              <div className="batch-subsection">
+                <h4>Batch QR Code</h4>
+                <div className="batch-qr-container" style={{ display: 'flex', justifyContent: 'center', margin: '15px 0' }}>
+                  <article className="generated-bag-card qr-card batch-qr-card" style={{ maxWidth: '240px', width: '100%', textAlign: 'center', padding: '15px', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                    <img src={selectedBatch.batch_qr_code} alt={`QR for batch ${selectedBatch.batch_number}`} className="qr-image batch-qr-image" style={{ width: '100%', height: 'auto', marginBottom: '10px', borderRadius: '6px' }} />
+                    <strong style={{ display: 'block', fontSize: '1rem', marginBottom: '5px' }}>Batch: {selectedBatch.batch_number}</strong>
+                    <small style={{ display: 'block', color: 'rgba(255, 255, 255, 0.6)', marginBottom: '10px' }}>Includes: {selectedBatch.number_of_bags} Bags</small>
+                    <a href={selectedBatch.batch_qr_code} download={`BATCH-${selectedBatch.batch_number}.png`} className="table-action qr-download" style={{ display: 'inline-block', width: '100%', padding: '8px', borderRadius: '4px', textDecoration: 'none', fontWeight: 'bold', fontSize: '0.9rem' }}>
+                      Download Batch QR
+                    </a>
+                  </article>
+                </div>
+              </div>
+            )}
+
             <div className="batch-subsection">
               <h4>Bag IDs</h4>
               <div className="detail-chip-grid">
@@ -797,7 +905,7 @@ function PreviousPage() {
                   return (
                     <span key={bagId} className="detail-chip">
                       {bagId}
-                      <small>{qrStatus || 'not sent'}</small>
+                      <small>{qrStatus || 'not scanned'}</small>
                     </span>
                   );
                 })}
@@ -812,7 +920,7 @@ function PreviousPage() {
                     <article key={qrCode.bagId} className="generated-bag-card qr-card">
                       <img src={qrCode.qrCodeDataUrl} alt={`QR for ${qrCode.bagId}`} className="qr-image" />
                       <strong>{qrCode.bagId}</strong>
-                      <small>Status: {qrCode.status || 'not sent'}</small>
+                      <small>Status: {qrCode.status || 'not scanned'}</small>
                       <a href={qrCode.qrCodeDataUrl} download={`${qrCode.bagId}.png`} className="table-action qr-download">
                         Download QR
                       </a>
@@ -1076,144 +1184,408 @@ function AnalysisPage() {
 }
 
 function AlertsPage() {
+  const [alerts, setAlerts] = useState([]);
+  const [status, setStatus] = useState({ loading: false, message: '' });
+
+  useEffect(() => {
+    loadAlerts();
+  }, []);
+
+  const loadAlerts = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/ai/alerts`);
+      const data = await res.json();
+      setAlerts(data.alerts || []);
+    } catch (e) {
+      console.error('Failed to load alerts:', e);
+    }
+  };
+
+  const runAnalysis = async () => {
+    setStatus({ loading: true, message: 'Running AI analysis...' });
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/ai/run`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Analysis failed');
+      setStatus({ loading: false, message: `Analysis complete. ${data.count || 0} alerts generated.` });
+      loadAlerts();
+    } catch (e) {
+      setStatus({ loading: false, message: `Error: ${e.message}` });
+    }
+  };
+
   return (
     <section className="page-content">
-      <PageTitle title="Alerts" subtitle="View alerts and suspicious activities requiring attention." />
-      <div className="metric-grid">
-        <MetricCard icon="warning" label="Active Alerts" value="24" accent="orange" />
-        <MetricCard icon="bell" label="High Priority" value="6" accent="purple" />
-        <MetricCard icon="document" label="In Review" value="11" accent="blue" />
-        <MetricCard icon="grid" label="Resolved Today" value="7" accent="green" />
-      </div>
-      <DataTable
-        columns={['Alert ID', 'Issue', 'District', 'Priority', 'Status']}
-        rows={alertRows}
+      <PageTitle
+        title="Alerts"
+        subtitle="AI-powered anomaly detection for fertilizer distribution."
+        action={status.loading ? 'Running...' : 'Run AI Analysis'}
+        onAction={runAnalysis}
       />
+
+      {status.message && (
+        <p className={`form-hint form-hint--${status.message.startsWith('Error') ? 'error' : 'success'}`}>
+          {status.message}
+        </p>
+      )}
+
+      <div className="metric-grid">
+        <MetricCard icon="warning" label="Total Alerts" value={alerts.length} accent="orange" />
+        <MetricCard icon="bell"    label="High Priority" value={alerts.filter(a => a.severity === 'High').length} accent="purple" />
+        <MetricCard icon="document" label="Open" value={alerts.filter(a => a.status === 'Open').length} accent="blue" />
+        <MetricCard icon="grid"    label="Districts Affected" value={new Set(alerts.map(a => a.district)).size} accent="green" />
+      </div>
+
+      {alerts.length > 0 ? (
+        <DataTable
+          columns={['Farmer', 'District', 'Type', 'Message', 'Severity', 'Status']}
+          rows={alerts.map(a => [
+            a.farmer_name || a.farmer_aadhar,
+            a.district || '—',
+            a.alert_type?.replace(/_/g, ' ') || '—',
+            a.message,
+            a.severity,
+            a.status,
+          ])}
+        />
+      ) : (
+        <p className="form-hint">No alerts yet. Click "Run AI Analysis" to scan for anomalies.</p>
+      )}
     </section>
   );
 }
+function NpkBar({ label, value, max, color }) {
+  const pct = Math.min(100, Math.round(((value || 0) / max) * 100));
+  return (
+    <div className="npk-bar-row">
+      <span className="npk-bar-label">{label}</span>
+      <div className="npk-bar-track">
+        <div className="npk-bar-fill" style={{ width: `${pct}%`, background: color }} />
+      </div>
+      <span className="npk-bar-value">{value != null ? `${value} kg/ha` : '—'}</span>
+    </div>
+  );
+}
 
+function FarmerDetailPanel({ aadharId, onBack }) {
+  const [detail, setDetail] = useState(null);
+  const [detailState, setDetailState] = useState({ status: 'loading', message: 'Loading farmer details...' });
+  const [transactions, setTransactions] = useState([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function load() {
+      try {
+        setDetailState({ status: 'loading', message: 'Loading farmer details...' });
+        const response = await fetch(`${API_BASE_URL}/api/farmer-records/${encodeURIComponent(aadharId)}`);
+        const result = await readJsonResponse(response);
+        if (!response.ok) throw new Error(result.error || 'Unable to load farmer details.');
+        if (isMounted) {
+          setDetail(result);
+          const txResponse = await fetch(`${API_BASE_URL}/api/farmer-transactions/${encodeURIComponent(aadharId)}`);
+          const txResult = await readJsonResponse(txResponse);
+          if (txResponse.ok) setTransactions(txResult.transactions || []);
+          setDetailState({ status: 'success', message: '' });
+        }
+      } catch (error) {
+        if (isMounted) setDetailState({ status: 'error', message: error.message || 'Failed to load.' });
+      }
+    }
+    load();
+    return () => { isMounted = false; };
+  }, [aadharId]);
+
+  const farmer = detail?.farmer || {};
+  const land = detail?.land || [];
+  const crops = detail?.crops || [];
+  const soilHealth = detail?.soilHealth || [];
+
+  return (
+    <section className="page-content">
+      <PageTitle
+        title="Farmer Details"
+        subtitle="Full profile across all four data tables."
+        action="Back"
+        onAction={onBack}
+      />
+
+      {detailState.status !== 'success' && (
+        <p className={`form-hint form-hint--${detailState.status === 'loading' ? 'saving' : 'error'}`}>
+          {detailState.message}
+        </p>
+      )}
+
+      {detailState.status === 'success' && (
+        <div className="farmer-full-detail-grid">
+
+          {/* ── Card 1: Basic Info ── */}
+          <section className="farmer-detail-section">
+            <div className="farmer-detail-section__header">
+              <span className="farmer-detail-section__icon">🪪</span>
+              <div>
+                <h3>Basic Information</h3>
+                <p>Identity & subsidy details from farmer_records</p>
+              </div>
+            </div>
+            <div className="farmer-detail-grid">
+              <div><span>Aadhar ID</span><strong>{farmer.aadhar_id || '—'}</strong></div>
+              <div><span>Name</span><strong>{farmer.name || '—'}</strong></div>
+              <div><span>Village</span><strong>{farmer.village || '—'}</strong></div>
+              <div><span>District</span><strong>{farmer.district || '—'}</strong></div>
+            </div>
+            {(() => {
+              const totalUsed = transactions.reduce((sum, tx) => sum + (tx.quantity_kg || 0), 0);
+              const limit = farmer.limit ?? 0;
+              const remaining = Math.max(0, limit - totalUsed);
+              const pct = limit > 0 ? Math.min(100, Math.round((totalUsed / limit) * 100)) : 0;
+              const barColor = pct >= 90 ? '#ef4444' : pct >= 60 ? '#f59e0b' : '#22c55e';
+              return (
+                <div style={{ marginTop: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '0.85rem' }}>
+                    <span>Seasonal Fertilizer Usage</span>
+                    <span style={{ color: barColor, fontWeight: 600 }}>{pct}% used</span>
+                  </div>
+                  <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '6px', height: '10px', overflow: 'hidden', marginBottom: '12px' }}>
+                    <div style={{ width: `${pct}%`, height: '100%', background: barColor, borderRadius: '6px', transition: 'width 0.4s ease' }} />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', textAlign: 'center' }}>
+                    <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '8px', padding: '10px' }}>
+                      <div style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '4px' }}>Total Limit</div>
+                      <strong>{limit} kg</strong>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '8px', padding: '10px' }}>
+                      <div style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '4px' }}>Used</div>
+                      <strong style={{ color: barColor }}>{totalUsed} kg</strong>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '8px', padding: '10px' }}>
+                      <div style={{ fontSize: '0.75rem', opacity: 0.7, marginBottom: '4px' }}>Remaining</div>
+                      <strong style={{ color: '#22c55e' }}>{remaining} kg</strong>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </section>
+
+          {/* ── Card 2: Land Records ── */}
+          <section className="farmer-detail-section">
+            <div className="farmer-detail-section__header">
+              <span className="farmer-detail-section__icon">🌾</span>
+              <div>
+                <h3>Land Records</h3>
+                <p>Registered land parcels from land_records</p>
+              </div>
+            </div>
+            {land.length === 0 ? (
+              <p className="farmer-detail-empty">No land records found.</p>
+            ) : (
+              <div className="farmer-detail-grid">
+                {land.map((row, i) => (
+                  <div key={row.id}>
+                    <span>Parcel {i + 1}</span>
+                    <strong>{row.land_area != null ? `${row.land_area} acres` : '—'}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* ── Card 3: Crop Records ── */}
+          <section className="farmer-detail-section">
+            <div className="farmer-detail-section__header">
+              <span className="farmer-detail-section__icon">🌱</span>
+              <div>
+                <h3>Crop Records</h3>
+                <p>Season & crop data from crop_records</p>
+              </div>
+            </div>
+            {crops.length === 0 ? (
+              <p className="farmer-detail-empty">No crop records found.</p>
+            ) : (
+              <div className="crop-records-list">
+                {crops.map((row) => (
+                  <div key={row.id} className="crop-record-item">
+                    <div className="crop-record-season">
+                      <span>Season</span>
+                      <strong>{row.season || '—'}</strong>
+                    </div>
+                    <div className="crop-record-types">
+                      {(row.crop_types || []).map((crop) => (
+                        <span key={crop} className="crop-tag">{crop}</span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* ── Card 4: Soil Health ── */}
+          <section className="farmer-detail-section">
+            <div className="farmer-detail-section__header">
+              <span className="farmer-detail-section__icon">🧪</span>
+              <div>
+                <h3>Soil Health</h3>
+                <p>NPK nutrient levels from soilhealth_records</p>
+              </div>
+            </div>
+            {soilHealth.length === 0 ? (
+              <p className="farmer-detail-empty">No soil health records found.</p>
+            ) : (
+              soilHealth.map((row) => (
+                <div key={row.id} className="npk-section">
+                  <NpkBar label="Nitrogen (N)" value={row.nitrogen} max={400} color="#22c55e" />
+                  <NpkBar label="Phosphorus (P)" value={row.phosphorus} max={250} color="#3b82f6" />
+                  <NpkBar label="Potassium (K)" value={row.potassium} max={300} color="#f59e0b" />
+                </div>
+              ))
+            )}
+          </section>
+
+          {/* ── Card 5: Transaction History ── */}
+          <section className="farmer-detail-section" style={{ gridColumn: '1 / -1' }}>
+            <div className="farmer-detail-section__header">
+              <span className="farmer-detail-section__icon">🧾</span>
+              <div>
+                <h3>Purchase History</h3>
+                <p>Real fertilizer transactions from farmer_transactions</p>
+              </div>
+            </div>
+            {transactions.length === 0 ? (
+              <p className="farmer-detail-empty">No transactions recorded yet.</p>
+            ) : (
+              <table className="records-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Dealer</th>
+                    <th>Fertilizer</th>
+                    <th>Batch</th>
+                    <th>Bag ID</th>
+                    <th>Quantity (kg)</th>
+                    <th>Season</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {transactions.map((tx) => (
+                    <tr key={tx.id}>
+                      <td>{new Date(tx.created_at).toLocaleString('en-IN')}</td>
+                      <td>{tx.dealer_name || 'N/A'}</td>
+                      <td>{tx.fertilizer_name || 'N/A'}</td>
+                      <td>{tx.batch_number || 'N/A'}</td>
+                      <td>{tx.bag_id || 'N/A'}</td>
+                      <td>{tx.quantity_kg} kg</td>
+                      <td>{tx.season || 'N/A'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+
+
+        </div>
+      )}
+    </section>
+  );
+}
 function FarmerRecordsPage() {
   const [farmers, setFarmers] = useState([]);
   const [state, setState] = useState({ status: 'loading', message: 'Loading farmer records...' });
-  const [selectedFarmer, setSelectedFarmer] = useState(null);
+  const [selectedAadhar, setSelectedAadhar] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDistrict, setSelectedDistrict] = useState('All Districts');
-  const [selectedStatus, setSelectedStatus] = useState('All Status');
-  const detailCardRef = useRef(null);
+  const [farmerMetrics, setFarmerMetrics] = useState({ totalFarmers: 0, activeFarmers: 0 });
 
   useEffect(() => {
-    setState({ status: 'loading', message: 'Loading farmer records...' });
-    const timer = setTimeout(() => {
-      const loadedFarmers = buildFarmerAnalysisRecords();
-      setFarmers(loadedFarmers);
-      setState({ status: 'success', message: loadedFarmers.length ? '' : 'No farmer records found.' });
-    }, 120);
-    return () => clearTimeout(timer);
+    let isMounted = true;
+
+    async function loadFarmerMetrics() {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/farmer-records/metrics`);
+        const result = await readJsonResponse(response);
+        if (!response.ok) throw new Error(result.error || 'Unable to load farmer metrics.');
+        if (isMounted) setFarmerMetrics({ totalFarmers: result.totalFarmers ?? 0, activeFarmers: result.activeFarmers ?? 0 });
+      } catch (error) {
+        console.error('Unable to load farmer metrics:', error);
+      }
+    }
+
+    async function loadFarmers() {
+      try {
+        setState({ status: 'loading', message: 'Loading farmer records...' });
+        const response = await fetch(`${API_BASE_URL}/api/farmer-records/`);
+        const result = await readJsonResponse(response);
+        if (!response.ok) throw new Error(result.error || 'Unable to load farmers.');
+        if (isMounted) {
+          setFarmers(result.farmers || []);
+          setState({ status: 'success', message: (result.farmers || []).length ? '' : 'No farmer records found.' });
+        }
+      } catch (error) {
+        if (isMounted) setState({ status: 'error', message: error.message || 'Failed to load farmer records.' });
+      }
+    }
+
+    loadFarmerMetrics();
+    loadFarmers();
+
+    return () => { isMounted = false; };
   }, []);
 
   const districts = useMemo(
-    () => ['All Districts', ...Array.from(new Set(farmers.map((farmer) => farmer.district).filter(Boolean)))],
+    () => ['All Districts', ...Array.from(new Set(farmers.map((f) => f.district).filter(Boolean)))],
     [farmers]
   );
 
   const filteredFarmers = useMemo(() => {
-    const normalizedSearch = searchTerm.trim().toLowerCase();
-
-    return farmers.filter((record) => {
-      const aadharNumber = record.id.replace(/\s/g, '');
-      const searchableText = `${record.id} ${aadharNumber} ${record.name}`.toLowerCase();
-      const compactSearchableText = searchableText.replace(/\s/g, '');
-      const compactSearch = normalizedSearch.replace(/\s/g, '');
-      const matchesSearch = !normalizedSearch || searchableText.includes(normalizedSearch) || compactSearchableText.includes(compactSearch);
-      const matchesDistrict = selectedDistrict === 'All Districts' || record.district === selectedDistrict;
-      const matchesStatus = selectedStatus === 'All Status' || record.status === selectedStatus;
-
-      return matchesSearch && matchesDistrict && matchesStatus;
+    const norm = searchTerm.trim().toLowerCase();
+    return farmers.filter((f) => {
+      const hay = `${f.aadhar_id} ${f.name} ${f.village} ${f.district}`.toLowerCase();
+      const matchSearch = !norm || hay.includes(norm) || hay.replace(/\s/g, '').includes(norm.replace(/\s/g, ''));
+      const matchDistrict = selectedDistrict === 'All Districts' || f.district === selectedDistrict;
+      return matchSearch && matchDistrict;
     });
-  }, [farmers, searchTerm, selectedDistrict, selectedStatus]);
+  }, [farmers, searchTerm, selectedDistrict]);
+
+  if (selectedAadhar) {
+    return <FarmerDetailPanel aadharId={selectedAadhar} onBack={() => setSelectedAadhar(null)} />;
+  }
 
   return (
     <section className="page-content">
-      <PageTitle title="Farmer Records" subtitle="View and manage farmer details and transaction history." action="Export" />
+      <PageTitle title="Farmer Records" subtitle="View farmer profiles across all four data tables." />
       <div className="filter-row">
         <input
           type="search"
           value={searchTerm}
           onChange={(event) => setSearchTerm(event.target.value)}
-          placeholder="Search by farmer name or Aadhaar number..."
+          placeholder="Search by name, Aadhaar, village, district..."
           aria-label="Search farmer records"
         />
         <select value={selectedDistrict} onChange={(event) => setSelectedDistrict(event.target.value)}>
           {districts.map((district) => <option key={district}>{district}</option>)}
         </select>
-        <select value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)}>
-          <option>All Status</option>
-          <option>Active</option>
-          <option>Inactive</option>
-        </select>
-        <button type="button" className="filter-button">Filters</button>
       </div>
       {state.status !== 'success' && (
         <p className={`form-hint form-hint--${state.status === 'loading' ? 'saving' : 'error'}`}>{state.message}</p>
       )}
       <div className="metric-grid">
-        <MetricCard icon="user" label="Total Farmers" value={filteredFarmers.length} accent="teal" />
-        <MetricCard icon="document" label="Total Transactions" value={filteredFarmers.length} accent="blue" />
-        <MetricCard icon="warning" label="Active Farmers" value={filteredFarmers.filter((record) => String(record.status).toLowerCase() === 'active').length} accent="orange" />
+        <MetricCard icon="user" label="Total Farmers" value={farmerMetrics.totalFarmers.toLocaleString('en-IN')} accent="teal" />
+        <MetricCard icon="document" label="Total Records" value={farmers.length.toLocaleString('en-IN')} accent="blue" />
+        <MetricCard icon="warning" label="Filtered View" value={filteredFarmers.length.toLocaleString('en-IN')} accent="orange" />
       </div>
-      {selectedFarmer && (
-        <section className="farmer-detail-card" ref={detailCardRef} aria-live="polite">
-          <div className="farmer-detail-card__header">
-            <div>
-              <p>Farmer Details</p>
-              <h3>{selectedFarmer.name}</h3>
-            </div>
-            <span className={`risk-pill risk-${selectedFarmer.riskLevel.toLowerCase()}`}>{selectedFarmer.riskLevel} Risk</span>
-          </div>
-          <div className="farmer-detail-grid">
-            <div><span>Land Size</span><strong>{selectedFarmer.landSize}</strong></div>
-            <div><span>Crop Type</span><strong>{selectedFarmer.cropType}</strong></div>
-            <div><span>Fertilizer Type</span><strong>{selectedFarmer.fertilizerType}</strong></div>
-            <div><span>Monthly Limit</span><strong>{selectedFarmer.monthlyLimit}</strong></div>
-          </div>
-          <div className="farmer-detail-reason">
-            <span>Reason</span>
-            <p>{selectedFarmer.reason}</p>
-          </div>
-        </section>
-      )}
       <DataTable
-        columns={['Aadhar Card ID', 'Farmer Name', 'District', 'Last Transaction', 'Fertilizer Received', 'Total Received', 'Status', 'Action']}
-        rows={filteredFarmers.map((record) => [
-          record.id,
-          record.name,
-          record.district,
-          formatDate(record.lastPurchase),
-          record.fertilizerType,
-          `${record.fertilizerPurchasedKg} kg`,
-          record.status,
+        columns={['Aadhar ID', 'Name', 'Village', 'District', 'Limit (kg)', 'Action']}
+        rows={filteredFarmers.map((f) => [
+          f.aadhar_id,
+          f.name,
+          f.village || '—',
+          f.district || '—',
+          f.limit != null ? String(f.limit) : '—',
           'View Details',
         ])}
-        footer={`Showing ${filteredFarmers.length} records`}
-        onAction={(row) => {
-          const farmer = filteredFarmers.find((record) => record.id === row[0]);
-          if (!farmer) return;
-          const detail = {
-            name: farmer.name,
-            landSize: farmer.landSize,
-            cropType: farmer.cropType,
-            fertilizerType: farmer.fertilizerType,
-            monthlyLimit: `${farmer.monthlyLimitKg} kg`,
-            riskLevel: farmer.severity,
-            reason: farmer.triggeredRules.join(', ') || 'No triggered rule',
-          };
-
-          setSelectedFarmer(detail);
-          setTimeout(() => {
-            detailCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }, 0);
-        }}
+        footer={`Showing ${filteredFarmers.length} of ${farmers.length} records`}
+        onAction={(row) => setSelectedAadhar(row[0])}
       />
     </section>
   );
@@ -1256,7 +1628,7 @@ function ScannerPage() {
       if (scannerRef.current?.isScanning) {
         scannerRef.current.stop()
           .then(() => scannerRef.current?.clear())
-          .catch(() => {});
+          .catch(() => { });
       } else {
         scannerRef.current?.clear?.();
       }
@@ -1299,38 +1671,73 @@ function ScannerPage() {
     setScanResult(decodedText);
     setScanUpdate(null);
     setScanError('');
-    setScanStatus('Updating bag status');
+    setScanStatus('Updating status...');
 
     try {
       if (scannerRef.current?.isScanning) {
         await stopScanner();
       }
 
-      const bagId = getBagIdFromScan(decodedText);
-
-      if (!bagId) {
-        throw new Error('The scanned QR code does not contain a bag ID.');
+      let isBatchQR = false;
+      let batchNumber = '';
+      try {
+        const parsed = JSON.parse(decodedText);
+        if (parsed && parsed.batchNumber && !parsed.bagId) {
+          isBatchQR = true;
+          batchNumber = parsed.batchNumber;
+        }
+      } catch (err) {
+        // Not a JSON payload, treated as raw text (bag ID)
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/batches/scan`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ bagId }),
-      });
+      let response;
+      if (isBatchQR) {
+        setScanStatus('Updating batch status');
+        response = await fetch(`${API_BASE_URL}/api/batches/scan`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ batchNumber, scannedBy: 'gov' }),
+        });
+      } else {
+        const bagId = getBagIdFromScan(decodedText);
+        if (!bagId) {
+          throw new Error('The scanned QR code does not contain a valid bag ID.');
+        }
+
+        setScanStatus('Updating bag status');
+        response = await fetch(`${API_BASE_URL}/api/batches/scan`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ bagId, scannedBy: 'gov' }),
+        });
+      }
 
       const result = await readJsonResponse(response);
 
       if (!response.ok) {
-        throw new Error(result.error || 'Unable to update bag status.');
+        throw new Error(result.error || 'Unable to update status.');
       }
 
-      setScanUpdate(result);
-      setScanStatus(result.changed ? 'Marked sent' : 'Already scanned');
+      if (isBatchQR) {
+        setScanUpdate({
+          bagId: `BATCH: ${result.batchNumber}`,
+          message: result.message,
+          batchNumber: result.batchNumber,
+          status: result.status,
+          changed: result.changed,
+        });
+        setScanStatus(result.changed ? 'Marked sent' : 'Batch already sent');
+      } else {
+        setScanUpdate(result);
+        setScanStatus(result.changed ? 'Marked sent' : 'Bag already sent');
+      }
     } catch (error) {
       setScanStatus('Scan update failed');
-      setScanError(error.message || 'Unable to update bag status.');
+      setScanError(error.message || 'Unable to update status.');
     } finally {
       scanRequestRef.current = false;
     }
@@ -1368,6 +1775,56 @@ function ScannerPage() {
     }
   }
 
+  async function scanFileWithNativeDetector(file) {
+    if (!window.BarcodeDetector || !window.createImageBitmap) {
+      throw new Error('Native QR detector is not available in this browser.');
+    }
+
+    const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+    const imageBitmap = await window.createImageBitmap(file);
+
+    try {
+      const codes = await detector.detect(imageBitmap);
+      const qrCode = codes.find((code) => code.rawValue);
+
+      if (!qrCode) {
+        throw new Error('No QR code could be read from this image.');
+      }
+
+      return qrCode.rawValue;
+    } finally {
+      imageBitmap.close?.();
+    }
+  }
+  async function resizeImage(file, maxDimension) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const scale = Math.min(1, maxDimension / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) return reject(new Error('Canvas resize failed'));
+            resolve(new File([blob], file.name, { type: file.type }));
+          },
+          file.type || 'image/jpeg'
+        );
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Image failed to load for resizing'));
+      };
+
+      img.src = url;
+    });
+  }
   async function handleFileScan(event) {
     const [file] = event.target.files || [];
     if (!file) return;
@@ -1382,7 +1839,49 @@ function ScannerPage() {
         await stopScanner();
       }
 
-      const decodedText = await scanner.scanFile(file, true);
+      let decodedText = null;
+      let scanErrorOccurred = null;
+
+      // 1. Try scanning original file
+      try {
+        decodedText = await scanner.scanFile(file, true);
+      } catch (err1) {
+        scanErrorOccurred = err1;
+      }
+
+      // 2. Try scanning at 800px resize
+      if (!decodedText) {
+        try {
+          const resized800 = await resizeImage(file, 800);
+          decodedText = await scanner.scanFile(resized800, true);
+        } catch (err2) {
+          scanErrorOccurred = err2;
+        }
+      }
+
+      // 3. Try scanning at 400px resize
+      if (!decodedText) {
+        try {
+          const resized400 = await resizeImage(file, 400);
+          decodedText = await scanner.scanFile(resized400, true);
+        } catch (err3) {
+          scanErrorOccurred = err3;
+        }
+      }
+
+      // 4. Try scanning with native BarcodeDetector if supported
+      if (!decodedText && window.BarcodeDetector && window.createImageBitmap) {
+        try {
+          decodedText = await scanFileWithNativeDetector(file);
+        } catch (err4) {
+          scanErrorOccurred = err4;
+        }
+      }
+
+      if (!decodedText) {
+        throw scanErrorOccurred || new Error('No QR code could be read from this image.');
+      }
+
       await handleScanSuccess(decodedText);
     } catch (error) {
       setScanStatus('No QR found');
@@ -1393,7 +1892,6 @@ function ScannerPage() {
       }
     }
   }
-
   async function copyResult() {
     if (!scanResult) return;
 
