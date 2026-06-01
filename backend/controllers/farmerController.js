@@ -51,8 +51,24 @@ async function getFarmerByAadhar(req, res) {
     return res.status(500).json({ error: details || 'Unknown server error' });
   }
 }
+async function getFarmerCount(req, res) {
+  try {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from(farmersTable)
+      .select('aadhar_id');
 
+    if (error) return res.status(500).json({ error: error.message });
+
+    return res.status(200).json({ count: data.length });
+  } catch (error) {
+    const causeMessage = error.cause?.message || error.cause?.code || null;
+    const details = [error.message, causeMessage].filter(Boolean).join(' | ');
+    return res.status(500).json({ error: details || 'Unknown server error' });
+  }
+}
 module.exports = {
   listFarmers,
   getFarmerByAadhar,
+  getFarmerCount,
 };

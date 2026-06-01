@@ -23,7 +23,7 @@ const translations = {
     sidebarPrevious: 'Transaction history',
     sidebarSell: 'Sell',
     sidebarHistory: 'Batches Scanned',
-    sidebarAlerts: 'Alerts',
+
     sidebarSettings: 'Settings',
     pageLabel: 'Dealer Dashboard',
     fertilizerDistribution: 'Fertilizer Distribution',
@@ -33,7 +33,7 @@ const translations = {
     totalFarmersRegistered: 'Total farmers registered',
     totalScanned: 'Total scanned',
     totalSold: 'Total sold',
-    activeAlerts: 'Active alerts',
+
     view: 'View',
     processSale: 'Process Sale',
     searchFarmerByAadhar: 'Search Farmer by Aadhar',
@@ -57,8 +57,8 @@ const translations = {
     previousRecordsSubtitle: 'View all previously received batches.',
     salesHistory: 'Sales History',
     salesHistorySubtitle: 'View all sales records.',
-    alertsTitle: 'Alerts',
-    alertsSubtitle: 'View all active alerts.',
+
+
     featureComingSoon: 'Feature coming soon...',
     settingsTitle: 'Settings',
     selectLanguage: 'Select language',
@@ -88,7 +88,7 @@ const translations = {
     sidebarPrevious: 'पिछले रिकॉर्ड देखें',
     sidebarSell: 'बेचे',
     sidebarHistory: 'इतिहास',
-    sidebarAlerts: 'अलर्ट',
+
     sidebarSettings: 'सेटिंग्स',
     pageLabel: 'डीलर डैशबोर्ड',
     fertilizerDistribution: 'उर्वरक वितरण',
@@ -153,7 +153,7 @@ const translations = {
     sidebarPrevious: 'मागील नोंदी पहा',
     sidebarSell: 'विक्री',
     sidebarHistory: 'इतिहास',
-    sidebarAlerts: 'अलर्ट',
+
     sidebarSettings: 'सेटिंग्ज',
     pageLabel: 'डीलर डॅशबोर्ड',
     fertilizerDistribution: 'खते वितरण',
@@ -318,7 +318,7 @@ function ScannerPage(props) {
       if (scannerRef.current?.isScanning) {
         scannerRef.current.stop()
           .then(() => scannerRef.current?.clear())
-          .catch(() => {});
+          .catch(() => { });
       } else {
         scannerRef.current?.clear?.();
       }
@@ -370,75 +370,75 @@ function ScannerPage(props) {
   }
 
   async function handleScanSuccess(decodedText) {
-  if (scanRequestRef.current) return;
+    if (scanRequestRef.current) return;
 
-  scanRequestRef.current = true;
-  setScanResult(decodedText);
-  setScanUpdate(null);
-  setScanError('');
-  setScanStatus('Updating bag status');
+    scanRequestRef.current = true;
+    setScanResult(decodedText);
+    setScanUpdate(null);
+    setScanError('');
+    setScanStatus('Updating bag status');
 
-  try {
-    if (scannerRef.current?.isScanning) {
-      await stopScanner();
+    try {
+      if (scannerRef.current?.isScanning) {
+        await stopScanner();
+      }
+
+      // Try to parse JSON payload
+      const parsed = parseDecodedPayload(decodedText);
+      const bagId = parsed.bagId || parsed.bag_id || '';
+      const batchNumber = parsed.batchNumber || parsed.batch_number || '';
+
+      let body;
+      if (batchNumber) {
+        // Batch QR scan
+        body = {
+          batchNumber,
+          scannedBy: 'dealer',
+          dealer_name: dealerDetails?.name || null,
+          location: dealerDetails?.address || null,
+        };
+      } else if (bagId) {
+        // Individual bag scan
+        body = {
+          bagId,
+          scannedBy: 'dealer',
+          dealer_name: dealerDetails?.name || null,
+          location: dealerDetails?.address || null,
+        };
+      } else {
+        throw new Error('The scanned QR code does not contain a bag ID or batch number.');
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/batches/scan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      const result = await readJsonResponse(response);
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Unable to update status.');
+      }
+
+      setScanUpdate(result);
+      if (body.batchNumber) {
+        setScanStatus(result.changed ? 'Marked received' : 'Batch already received');
+      } else {
+        setScanStatus(result.changed ? 'Marked received' : 'Bag received already');
+      }
+
+      // The backend automatically logs the scan to dealer_scan_records now.
+      // Refresh local scan records so View Previous reflects the latest data.
+      loadScanRecords();
+
+    } catch (error) {
+      setScanStatus('Scan update failed');
+      setScanError(error.message || 'Unable to update status.');
+    } finally {
+      scanRequestRef.current = false;
     }
-
-    // Try to parse JSON payload
-    const parsed = parseDecodedPayload(decodedText);
-    const bagId = parsed.bagId || parsed.bag_id || '';
-    const batchNumber = parsed.batchNumber || parsed.batch_number || '';
-
-    let body;
-    if (batchNumber) {
-      // Batch QR scan
-      body = {
-        batchNumber,
-        scannedBy: 'dealer',
-        dealer_name: dealerDetails?.name || null,
-        location: dealerDetails?.address || null,
-      };
-    } else if (bagId) {
-      // Individual bag scan
-      body = {
-        bagId,
-        scannedBy: 'dealer',
-        dealer_name: dealerDetails?.name || null,
-        location: dealerDetails?.address || null,
-      };
-    } else {
-      throw new Error('The scanned QR code does not contain a bag ID or batch number.');
-    }
-
-    const response = await fetch(`${API_BASE_URL}/api/batches/scan`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-
-    const result = await readJsonResponse(response);
-
-    if (!response.ok) {
-      throw new Error(result.error || 'Unable to update status.');
-    }
-
-    setScanUpdate(result);
-    if (body.batchNumber) {
-      setScanStatus(result.changed ? 'Marked received' : 'Batch already received');
-    } else {
-      setScanStatus(result.changed ? 'Marked received' : 'Bag received already');
-    }
-
-    // The backend automatically logs the scan to dealer_scan_records now.
-    // Refresh local scan records so View Previous reflects the latest data.
-    loadScanRecords();
-
-  } catch (error) {
-    setScanStatus('Scan update failed');
-    setScanError(error.message || 'Unable to update status.');
-  } finally {
-    scanRequestRef.current = false;
   }
-}
 
   async function startScanner() {
     setScanError('');
@@ -472,7 +472,7 @@ function ScannerPage(props) {
     }
   }
 
-  
+
 
   async function handleFileScan(event) {
     const [file] = event.target.files || [];
@@ -654,11 +654,13 @@ function App() {
   const [settingsView, setSettingsView] = useState('language');
   const [aadharInput, setAadharInput] = useState('');
   const [farmerData, setFarmerData] = useState(null);
+  const [farmerCount, setFarmerCount] = useState(null);
+  const [totalBagsScanned, setTotalBagsScanned] = useState(null);
   const [dealerDetails, setDealerDetails] = useState(dealerDetailsByLanguage.en);
   const [isEditingDealer, setIsEditingDealer] = useState(false);
   const [scanRecords, setScanRecords] = useState([]);
   const [saleHistory, setSaleHistory] = useState([]);
-const [saleHistoryStatus, setSaleHistoryStatus] = useState({ status: 'idle', message: '' });
+  const [saleHistoryStatus, setSaleHistoryStatus] = useState({ status: 'idle', message: '' });
   const [recordsStatus, setRecordsStatus] = useState({
     status: 'idle',
     message: '',
@@ -667,8 +669,8 @@ const [saleHistoryStatus, setSaleHistoryStatus] = useState({ status: 'idle', mes
   const texts = translations[language];
 
   const digitMap = {
-    hi: {0:'०',1:'१',2:'२',3:'३',4:'४',5:'५',6:'६',7:'७',8:'८',9:'९'},
-    mr: {0:'०',1:'१',2:'२',3:'३',4:'४',5:'५',6:'६',7:'७',8:'८',9:'९'}
+    hi: { 0: '०', 1: '१', 2: '२', 3: '३', 4: '४', 5: '५', 6: '६', 7: '७', 8: '८', 9: '९' },
+    mr: { 0: '०', 1: '१', 2: '२', 3: '३', 4: '४', 5: '५', 6: '६', 7: '७', 8: '८', 9: '९' }
   };
 
   const localizeDigits = (value) => {
@@ -747,18 +749,18 @@ const [saleHistoryStatus, setSaleHistoryStatus] = useState({ status: 'idle', mes
       });
     }
   };
-const loadSaleHistory = async () => {
-  try {
-    setSaleHistoryStatus({ status: 'loading', message: 'Loading sales history...' });
-    const response = await fetch(`${API_BASE_URL}/api/farmer-transactions`);
-    const payload = await readJsonResponse(response);
-    if (!response.ok) throw new Error(payload.error || 'Unable to load sales history.');
-    setSaleHistory(payload.transactions || []);
-    setSaleHistoryStatus({ status: 'success', message: '' });
-  } catch (error) {
-    setSaleHistoryStatus({ status: 'error', message: error.message });
-  }
-};
+  const loadSaleHistory = async () => {
+    try {
+      setSaleHistoryStatus({ status: 'loading', message: 'Loading sales history...' });
+      const response = await fetch(`${API_BASE_URL}/api/farmer-transactions`);
+      const payload = await readJsonResponse(response);
+      if (!response.ok) throw new Error(payload.error || 'Unable to load sales history.');
+      setSaleHistory(payload.transactions || []);
+      setSaleHistoryStatus({ status: 'success', message: '' });
+    } catch (error) {
+      setSaleHistoryStatus({ status: 'error', message: error.message });
+    }
+  };
   async function saveScanRecord(decodedText, batch, extraInfo = {}) {
     try {
       const decodedPayload = parseDecodedPayload(decodedText);
@@ -786,11 +788,20 @@ const loadSaleHistory = async () => {
       console.error(error.message || 'Scan record saving failed.');
     }
   }
-
   useEffect(() => {
-  if (currentPage === 'previous') loadScanRecords();
-  if (currentPage === 'history') loadSaleHistory();
-}, [currentPage]);
+    fetch(`${API_BASE_URL}/api/farmers/count`)
+      .then(res => res.json())
+      .then(data => setFarmerCount(data.count ?? 0))
+      .catch(() => setFarmerCount(0));
+
+    fetch(`${API_BASE_URL}/api/scan-records/total-bags`)
+      .then(res => res.json())
+      .then(data => setTotalBagsScanned(data.total ?? 0))
+      .catch(() => setTotalBagsScanned(0));
+  }, []);
+  useEffect(() => {
+    if (currentPage === 'previous' || currentPage === 'history') loadScanRecords();
+  }, [currentPage]);
 
   return (
     <div className="dealer-dashboard">
@@ -809,7 +820,7 @@ const loadSaleHistory = async () => {
           <button className={`nav-item ${currentPage === 'previous' ? 'active' : ''}`} onClick={() => setCurrentPage('previous')}>{texts.sidebarPrevious}</button>
           <button className={`nav-item ${currentPage === 'sell' ? 'active' : ''}`} onClick={() => setCurrentPage('sell')}>{texts.sidebarSell}</button>
           <button className={`nav-item ${currentPage === 'history' ? 'active' : ''}`} onClick={() => setCurrentPage('history')}>{texts.sidebarHistory}</button>
-          <button className={`nav-item ${currentPage === 'alerts' ? 'active' : ''}`} onClick={() => setCurrentPage('alerts')}>{texts.sidebarAlerts}</button>
+
           <button className={`nav-item ${currentPage === 'settings' ? 'active' : ''}`} onClick={() => setCurrentPage('settings')}>{texts.sidebarSettings}</button>
         </nav>
       </aside>
@@ -837,28 +848,31 @@ const loadSaleHistory = async () => {
             <section className="section stats-row">
               <div className="stat-card card-green">
                 <span className="stat-icon">👨‍🌾</span>
-                <p>{texts.totalFarmersRegistered}</p>
-                <strong>{localizeDigits(1250)}</strong>
-                <button className="view-button">{texts.view}</button>
+                <div>
+                  <p>{texts.totalFarmersRegistered}</p>
+                  <strong>{localizeDigits(farmerCount ?? '...')}</strong>
+                  <span style={{ fontSize: '0.94rem', color: '#334155', marginTop: '8px', display: 'block' }}>Farmers</span>
+                </div>
               </div>
+
               <div className="stat-card card-blue">
                 <span className="stat-icon">📦</span>
-                <p>{texts.totalScanned}</p>
-                <strong>{localizeDigits(482)}</strong>
-                <button className="view-button">{texts.view}</button>
+                <div>
+                  <p>{texts.totalScanned}</p>
+                  <strong>{localizeDigits(totalBagsScanned ?? '...')}</strong>
+                </div>
               </div>
+
               <div className="stat-card card-orange">
                 <span className="stat-icon">🛒</span>
-                <p>{texts.totalSold}</p>
-                <strong>{localizeDigits(348)}</strong>
-                <button className="view-button">{texts.view}</button>
+                <div>
+                  <p>{texts.totalSold}</p>
+                  <strong>{localizeDigits(348)}</strong>
+                </div>
               </div>
-              <div className="stat-card card-purple">
-                <span className="stat-icon">⚠️</span>
-                <p>{texts.activeAlerts}</p>
-                <strong>{localizeDigits(12)}</strong>
-                <button className="view-button">{texts.view}</button>
-              </div>
+
+
+
             </section>
           </>
         )}
@@ -939,65 +953,126 @@ const loadSaleHistory = async () => {
             </section>
           </>
         )}
-{currentPage === 'bagScan' && (
-  <>
-    <header className="top-bar">
-      <div>
-        <p className="page-label">{texts.pageLabel}</p>
-        <h2>{texts.scanBatch}</h2>
-        <p className="subtitle">{texts.scanBatchSubtitle}</p>
-      </div>
-    </header>
-    <p>Bag Scanner Page Loaded</p>
-    <NewBagScannerPage setCurrentPage={setCurrentPage} farmerData={farmerData} />
-  </>
-)}
+        {currentPage === 'bagScan' && (
+          <>
+            <header className="top-bar">
+              <div>
+                <p className="page-label">{texts.pageLabel}</p>
+                <h2>{texts.scanBatch}</h2>
+                <p className="subtitle">{texts.scanBatchSubtitle}</p>
+              </div>
+            </header>
+            <p>Bag Scanner Page Loaded</p>
+            <NewBagScannerPage setCurrentPage={setCurrentPage} farmerData={farmerData} />
+          </>
+        )}
 
         {currentPage === 'history' && (
   <>
     <header className="top-bar">
       <div>
         <p className="page-label">{texts.pageLabel}</p>
-        <h2>{texts.salesHistory}</h2>
-        <p className="subtitle">{texts.salesHistorySubtitle}</p>
+        <h2>Batches Scanned</h2>
+        <p className="subtitle">
+          All batches and bags scanned by dealer.
+        </p>
       </div>
     </header>
+
     <section className="records-section">
-      {saleHistoryStatus.status === 'loading' && <p>{saleHistoryStatus.message}</p>}
-      {saleHistoryStatus.status === 'error' && <p className="form-hint form-hint--error">{saleHistoryStatus.message}</p>}
-      {saleHistoryStatus.status === 'success' && saleHistory.length === 0 && (
-        <p>No sales recorded yet.</p>
+      {recordsStatus.status === 'loading' && (
+        <p className="records-message">{recordsStatus.message}</p>
       )}
-      {saleHistory.length > 0 && (
-        <div className="records-table-wrap">
-          <table className="records-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-          <th>Farmer Aadhar</th>
-          <th>Product</th>
-          <th>Batch</th>
-          <th>Quantity (kg)</th>
-          <th>Season</th>
-              </tr>
-            </thead>
-            <tbody>
-  {saleHistory.map((record) => (
-    <tr key={record.id}>
-      <td>{new Date(record.transaction_datetime || record.created_at).toLocaleString('en-IN')}</td>
-      <td>{record.farmer_aadhar_card_id}</td>
-      <td>{record.fertilizer_name || 'N/A'}</td>
-      <td>{record.batch_number || 'N/A'}</td>
-      <td>{record.kg} kg</td>
-    </tr>
-  ))}
-</tbody>
-          </table>
-        </div>
+
+      {recordsStatus.status === 'error' && (
+        <p className="records-message error">{recordsStatus.message}</p>
       )}
+
+      {recordsStatus.status === 'success' &&
+        scanRecords.length === 0 && (
+          <p className="records-message">
+            No scanned records yet.
+          </p>
+        )}
+
+      {scanRecords.length > 0 &&
+        (() => {
+          const receivedRecords = scanRecords.filter(
+            (r) => r.status === "received"
+          );
+
+          const batchMap = {};
+
+          receivedRecords.forEach((record) => {
+            const key =
+              record.batch_number ||
+              record.bag_id ||
+              record.id;
+
+            if (!batchMap[key]) {
+              batchMap[key] = {
+                ...record,
+                bagsScanned: 1,
+              };
+            } else {
+              batchMap[key].bagsScanned += 1;
+            }
+          });
+
+          const batches = Object.values(batchMap);
+
+          return (
+            <div className="records-table-wrap">
+              <table className="records-table">
+                <thead>
+                  <tr>
+                    <th>Scanned At</th>
+                    <th>Batch Number</th>
+                    <th>Product</th>
+                    <th>Manufacturer</th>
+                    <th>Bag Weight</th>
+                    <th>Bags Scanned</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {batches.map((record) => (
+                    <tr
+                      key={
+                        record.batch_number || record.id
+                      }
+                    >
+                      <td>
+                        {formatDateTime(
+                          record.scanned_at
+                        )}
+                      </td>
+                      <td>
+                        {record.batch_number || "N/A"}
+                      </td>
+                      <td>
+                        {record.product_name || "N/A"}
+                      </td>
+                      <td>
+                        {record.manufacturer || "N/A"}
+                      </td>
+                      <td>
+                        {record.bag_weight || "N/A"}
+                      </td>
+                      <td>{record.bagsScanned}</td>
+                      <td>{record.status || "N/A"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
     </section>
   </>
 )}
+       
 
         {currentPage === 'scan' && (
           <>
@@ -1013,123 +1088,112 @@ const loadSaleHistory = async () => {
         )}
 
         {currentPage === 'previous' && (
-  <>
-    <header className="top-bar">
-      <div>
-        <p className="page-label">{texts.pageLabel}</p>
-        <h2>{texts.previousRecords}</h2>
-        <p className="subtitle">{texts.previousRecordsSubtitle}</p>
-      </div>
-    </header>
-    <section className="records-section">
-      {recordsStatus.status === 'loading' && <p className="records-message">{recordsStatus.message}</p>}
-      {recordsStatus.status === 'error' && <p className="records-message error">{recordsStatus.message}</p>}
-      {recordsStatus.status === 'success' && scanRecords.length === 0 && (
-        <p className="records-message">{recordsStatus.message}</p>
-      )}
-
-      {scanRecords.length > 0 && (
-        <div className="records-table-wrap">
-          <table className="records-table">
-            <thead>
-              <tr>
-                <th>Scanned At</th>
-                <th>Bag ID</th>
-                <th>Batch Number</th>
-                <th>Product</th>
-                <th>Bags</th>
-                <th>Manufacturer</th>
-                <th>Weight</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {scanRecords.map((record) => (
-                <tr key={record.id}>
-                  <td>{formatDateTime(record.scanned_at)}</td>
-                  <td><span className="record-chip">{record.bag_id || 'N/A'}</span></td>
-                  <td>{record.batch_number || 'N/A'}</td>
-                  <td>{record.product_name || 'N/A'}</td>
-                  <td>{record.number_of_bags || 'N/A'}</td>
-                  <td>{record.manufacturer || 'N/A'}</td>
-                  <td>{record.bag_weight || 'N/A'}</td>
-                  <td>
-                    {record.farmer_aadhar_id ? (
-                      <button
-                        className="search-button"
-                        style={{ padding: '6px 14px', fontSize: '0.85rem' }}
-                        onClick={() => setSelectedScanRecord(record)}
-                      >
-                        View Details
-                      </button>
-                    ) : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {selectedScanRecord && (
-        <div className="details-modal-backdrop" onClick={() => setSelectedScanRecord(null)}>
-          <div className="details-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="details-modal__header">
-              <div>
-                <h3>Sale Details</h3>
-                <p>Bag and farmer information for this transaction</p>
-              </div>
-              <button className="outline-action" onClick={() => setSelectedScanRecord(null)}>
-                Close
-              </button>
-            </div>
-
-            <div className="batch-detail-grid">
-              <div><span>Bag ID: </span><strong>{selectedScanRecord.bag_id || '—'}</strong></div>
-              <div><span>Batch Number: </span><strong>{selectedScanRecord.batch_number || '—'}</strong></div>
-              <div><span>Product: </span><strong>{selectedScanRecord.product_name || '—'}</strong></div>
-              <div><span>Weight: </span><strong>{selectedScanRecord.bag_weight || '—'}</strong></div>
-              <div><span>Status: </span><strong>{selectedScanRecord.status || '—'}</strong></div>
-              <div><span>Sold At: </span><strong>{formatDateTime(selectedScanRecord.scanned_at)}</strong></div>
-            </div>
-
-            <hr style={{ margin: '16px 0', opacity: 0.2 }} />
-            <h4 style={{ marginBottom: '12px' }}>Farmer Details</h4>
-
-            <div className="batch-detail-grid">
-              <div><span>Aadhar ID: </span><strong>{selectedScanRecord.farmer_aadhar_id || '—'}</strong></div>
-              <div><span>Name: </span><strong>{selectedScanRecord.farmer_name || '—'}</strong></div>
-              <div><span>Village: </span><strong>{selectedScanRecord.farmer_village || '—'}</strong></div>
-              <div><span>District: </span><strong>{selectedScanRecord.farmer_district || '—'}</strong></div>
-            </div>
-          </div>
-        </div>
-      )}
-
-    </section>
-  </>
-)}
-                 
-                    
-
-                  
-            
-          
-        
-        {currentPage === 'alerts' && (
           <>
             <header className="top-bar">
               <div>
                 <p className="page-label">{texts.pageLabel}</p>
-                <h2>{texts.alertsTitle}</h2>
-                <p className="subtitle">{texts.alertsSubtitle}</p>
+                {selectedScanRecord ? (
+                  <>
+                    <h2>Sale Details</h2>
+                    <p className="subtitle">Bag and farmer information for this transaction</p>
+                  </>
+                ) : (
+                  <>
+                    <h2>{texts.previousRecords}</h2>
+                    <p className="subtitle">{texts.previousRecordsSubtitle}</p>
+                  </>
+                )}
               </div>
+              {selectedScanRecord && (
+                <button className="outline-action" onClick={() => setSelectedScanRecord(null)}>
+                  ← Back to Records
+                </button>
+              )}
             </header>
-            <section className="empty-section">
-              <p>{texts.featureComingSoon}</p>
-            </section>
+
+            {selectedScanRecord ? (
+              /* ── DETAIL PAGE ── */
+              <section className="page-content">
+                <div className="batch-detail-grid" style={{ marginBottom: '24px' }}>
+                  <div><span>Bag ID: </span><strong>{selectedScanRecord.bag_id || '—'}</strong></div>
+                  <div><span>Batch Number: </span><strong>{selectedScanRecord.batch_number || '—'}</strong></div>
+                  <div><span>Product: </span><strong>{selectedScanRecord.product_name || '—'}</strong></div>
+                  <div><span>Weight: </span><strong>{selectedScanRecord.bag_weight || '—'}</strong></div>
+                  <div><span>Status: </span><strong>{selectedScanRecord.status || '—'}</strong></div>
+                  <div><span>Sold At: </span><strong>{formatDateTime(selectedScanRecord.scanned_at)}</strong></div>
+                </div>
+
+                <hr style={{ margin: '0 0 24px', opacity: 0.15 }} />
+
+                <h3 style={{ margin: '0 0 16px', fontSize: '1.2rem' }}>Farmer Details</h3>
+                <div className="batch-detail-grid">
+                  <div><span>Aadhar ID: </span><strong>{selectedScanRecord.farmer_aadhar_id || '—'}</strong></div>
+                  <div><span>Name: </span><strong>{selectedScanRecord.farmer_name || '—'}</strong></div>
+                  <div><span>Village: </span><strong>{selectedScanRecord.farmer_village || '—'}</strong></div>
+                  <div><span>District: </span><strong>{selectedScanRecord.farmer_district || '—'}</strong></div>
+                </div>
+              </section>
+
+            ) : (
+              /* ── TABLE PAGE ── */
+              <section className="records-section">
+                {recordsStatus.status === 'loading' && <p className="records-message">{recordsStatus.message}</p>}
+                {recordsStatus.status === 'error' && <p className="records-message error">{recordsStatus.message}</p>}
+                {recordsStatus.status === 'success' && scanRecords.length === 0 && (
+                  <p className="records-message">{recordsStatus.message}</p>
+                )}
+                {scanRecords.length > 0 && (
+                  <div className="records-table-wrap">
+                    <table className="records-table">
+                      <thead>
+                        <tr>
+                          <th>Scanned At: </th>
+                          <th>Bag ID: </th>
+                          <th>Batch Number: </th>
+                          <th>Product: </th>
+                          <th>Bags: </th>
+                          <th>Manufacturer: </th>
+                          <th>Weight: </th>
+                          <th>Action: </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {scanRecords.map((record) => (
+                          <tr key={record.id}>
+                            <td>{formatDateTime(record.scanned_at)}</td>
+                            <td><span className="record-chip">{record.bag_id || 'N/A'}</span></td>
+                            <td>{record.batch_number || 'N/A'}</td>
+                            <td>{record.product_name || 'N/A'}</td>
+                            <td>{record.number_of_bags || 'N/A'}</td>
+                            <td>{record.manufacturer || 'N/A'}</td>
+                            <td>{record.bag_weight || 'N/A'}</td>
+                            <td>
+                              {record.farmer_aadhar_id ? (
+                                <button
+                                  className="search-button"
+                                  style={{ padding: '6px 14px', fontSize: '0.85rem' }}
+                                  onClick={() => setSelectedScanRecord(record)}
+                                >
+                                  View Details
+                                </button>
+                              ) : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+            )}
           </>
         )}
+
+
+
+
+
+
 
         {currentPage === 'settings' && (
           <>
