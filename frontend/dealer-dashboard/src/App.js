@@ -1,7 +1,18 @@
+import { Html5Qrcode } from 'html5-qrcode';
+import NewBagScannerPage from './NewBagScannerPage';
+import { useEffect, useRef, useState } from 'react';
 import './App.css';
-import { useState, useEffect, useRef } from 'react';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+
+function parseDecodedPayload(decodedText) {
+  try {
+    const parsed = JSON.parse(decodedText);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (error) {
+    return {};
+  }
+}
 
 const translations = {
   en: {
@@ -9,9 +20,9 @@ const translations = {
     brandLabel: 'Dashboard',
     sidebarDashboard: 'Dashboard',
     sidebarScan: 'Scan batch',
-    sidebarPrevious: 'View previous records',
+    sidebarPrevious: 'Transaction history',
     sidebarSell: 'Sell',
-    sidebarHistory: 'History',
+    sidebarHistory: 'Batches Scanned',
     sidebarAlerts: 'Alerts',
     sidebarSettings: 'Settings',
     pageLabel: 'Dealer Dashboard',
@@ -201,6 +212,418 @@ const translations = {
   }
 };
 
+async function readJsonResponse(response) {
+  const responseText = await response.text();
+
+  try {
+    return responseText ? JSON.parse(responseText) : {};
+  } catch (error) {
+    throw new Error(`Server returned ${response.status} ${response.statusText} instead of JSON.`);
+  }
+}
+
+function ScanIcon() {
+  return (
+    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 8V5a1 1 0 0 1 1-1h3" />
+      <path d="M16 4h3a1 1 0 0 1 1 1v3" />
+      <path d="M20 16v3a1 1 0 0 1-1 1h-3" />
+      <path d="M8 20H5a1 1 0 0 1-1-1v-3" />
+      <path d="M7 12h10" />
+      <path d="M9 9h6v6H9z" />
+    </svg>
+  );
+}
+
+function resizeImage(file, maxDimension) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error('Canvas to Blob failed'));
+            return;
+          }
+          const resizedFile = new File([blob], file.name, {
+            type: file.type || 'image/jpeg',
+            lastModified: Date.now(),
+          });
+          resolve(resizedFile);
+        }, file.type || 'image/jpeg');
+      };
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = e.target.result;
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function ScannerPage(props) {
+  const { dealerDetails, loadScanRecords } = props;
+  const scannerRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const scanRequestRef = useRef(false);
+  const [cameras, setCameras] = useState([]);
+  const [selectedCamera, setSelectedCamera] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanStatus, setScanStatus] = useState('Ready');
+  const [scanResult, setScanResult] = useState('');
+  const [scanUpdate, setScanUpdate] = useState(null);
+  const [scanError, setScanError] = useState('');
+  const isResultUrl = /^https?:\/\//i.test(scanResult);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    Html5Qrcode.getCameras()
+      .then((availableCameras) => {
+        if (!isMounted) return;
+
+        setCameras(availableCameras);
+        if (availableCameras.length > 0) {
+          setSelectedCamera(availableCameras[0].id);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setScanStatus('Camera unavailable');
+        }
+      });
+
+    return () => {
+      isMounted = false;
+
+      if (scannerRef.current?.isScanning) {
+        scannerRef.current.stop()
+          .then(() => scannerRef.current?.clear())
+          .catch(() => {});
+      } else {
+        scannerRef.current?.clear?.();
+      }
+    };
+  }, []);
+
+  async function getScanner() {
+    if (!scannerRef.current) {
+      scannerRef.current = new Html5Qrcode('qr-reader');
+    }
+
+    return scannerRef.current;
+  }
+
+  async function stopScanner() {
+    const scanner = scannerRef.current;
+    if (!scanner) return;
+
+    if (scanner.isScanning) {
+      await scanner.stop();
+    }
+
+    scanner.clear();
+    setIsScanning(false);
+  }
+
+
+
+  async function scanFileWithNativeDetector(file) {
+    if (!window.BarcodeDetector || !window.createImageBitmap) {
+      throw new Error('Native QR detector is not available in this browser.');
+    }
+
+    const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+    const imageBitmap = await window.createImageBitmap(file);
+
+    try {
+      const codes = await detector.detect(imageBitmap);
+      const qrCode = codes.find((code) => code.rawValue);
+
+      if (!qrCode) {
+        throw new Error('No QR code could be read from this image.');
+      }
+
+      return qrCode.rawValue;
+    } finally {
+      imageBitmap.close?.();
+    }
+  }
+
+  async function handleScanSuccess(decodedText) {
+  if (scanRequestRef.current) return;
+
+  scanRequestRef.current = true;
+  setScanResult(decodedText);
+  setScanUpdate(null);
+  setScanError('');
+  setScanStatus('Updating bag status');
+
+  try {
+    if (scannerRef.current?.isScanning) {
+      await stopScanner();
+    }
+
+    // Try to parse JSON payload
+    const parsed = parseDecodedPayload(decodedText);
+    const bagId = parsed.bagId || parsed.bag_id || '';
+    const batchNumber = parsed.batchNumber || parsed.batch_number || '';
+
+    let body;
+    if (batchNumber) {
+      // Batch QR scan
+      body = {
+        batchNumber,
+        scannedBy: 'dealer',
+        dealer_name: dealerDetails?.name || null,
+        location: dealerDetails?.address || null,
+      };
+    } else if (bagId) {
+      // Individual bag scan
+      body = {
+        bagId,
+        scannedBy: 'dealer',
+        dealer_name: dealerDetails?.name || null,
+        location: dealerDetails?.address || null,
+      };
+    } else {
+      throw new Error('The scanned QR code does not contain a bag ID or batch number.');
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/batches/scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const result = await readJsonResponse(response);
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Unable to update status.');
+    }
+
+    setScanUpdate(result);
+    if (body.batchNumber) {
+      setScanStatus(result.changed ? 'Marked received' : 'Batch already received');
+    } else {
+      setScanStatus(result.changed ? 'Marked received' : 'Bag received already');
+    }
+
+    // The backend automatically logs the scan to dealer_scan_records now.
+    // Refresh local scan records so View Previous reflects the latest data.
+    loadScanRecords();
+
+  } catch (error) {
+    setScanStatus('Scan update failed');
+    setScanError(error.message || 'Unable to update status.');
+  } finally {
+    scanRequestRef.current = false;
+  }
+}
+
+  async function startScanner() {
+    setScanError('');
+    setScanStatus('Starting camera');
+
+    try {
+      const scanner = await getScanner();
+
+      if (scanner.isScanning) {
+        await stopScanner();
+      }
+
+      await scanner.start(
+        selectedCamera || { facingMode: 'environment' },
+        {
+          fps: 10,
+          qrbox: { width: 260, height: 260 },
+          aspectRatio: 1,
+        },
+        (decodedText) => {
+          handleScanSuccess(decodedText);
+        }
+      );
+
+      setIsScanning(true);
+      setScanStatus('Scanning');
+    } catch (error) {
+      setIsScanning(false);
+      setScanStatus('Camera unavailable');
+      setScanError(error?.message || 'Unable to start scanner.');
+    }
+  }
+
+  
+
+  async function handleFileScan(event) {
+    const [file] = event.target.files || [];
+    if (!file) return;
+
+    setScanError('');
+    setScanStatus('Reading image');
+
+    try {
+      const scanner = await getScanner();
+
+      if (scanner.isScanning) {
+        await stopScanner();
+      }
+
+      let decodedText = null;
+      let scanErrorOccurred = null;
+
+      // 1. Try scanning original file
+      try {
+        decodedText = await scanner.scanFile(file, true);
+      } catch (err1) {
+        scanErrorOccurred = err1;
+      }
+
+      // 2. Try scanning at 800px resize
+      if (!decodedText) {
+        try {
+          const resized800 = await resizeImage(file, 800);
+          decodedText = await scanner.scanFile(resized800, true);
+        } catch (err2) {
+          scanErrorOccurred = err2;
+        }
+      }
+
+      // 3. Try scanning at 400px resize
+      if (!decodedText) {
+        try {
+          const resized400 = await resizeImage(file, 400);
+          decodedText = await scanner.scanFile(resized400, true);
+        } catch (err3) {
+          scanErrorOccurred = err3;
+        }
+      }
+
+      // 4. Try scanning with native BarcodeDetector if supported
+      if (!decodedText && window.BarcodeDetector && window.createImageBitmap) {
+        try {
+          decodedText = await scanFileWithNativeDetector(file);
+        } catch (err4) {
+          scanErrorOccurred = err4;
+        }
+      }
+
+      if (!decodedText) {
+        throw scanErrorOccurred || new Error('No QR code could be read from this image.');
+      }
+
+      await handleScanSuccess(decodedText);
+    } catch (error) {
+      setScanStatus('No QR found');
+      setScanError(error?.message || 'No QR code could be read from this image.');
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  }
+
+  async function copyResult() {
+    if (!scanResult) return;
+
+    try {
+      await navigator.clipboard.writeText(scanResult);
+      setScanStatus('Copied');
+    } catch {
+      setScanError('Unable to copy result.');
+    }
+  }
+
+  return (
+    <div className="scanner-layout">
+      <section className="scanner-panel">
+        <div className="scanner-toolbar">
+          <select
+            value={selectedCamera}
+            onChange={(event) => setSelectedCamera(event.target.value)}
+            disabled={isScanning || cameras.length === 0}
+            aria-label="Camera"
+          >
+            {cameras.length === 0 && <option value="">Default camera</option>}
+            {cameras.map((camera, index) => (
+              <option key={camera.id} value={camera.id}>
+                {camera.label || `Camera ${index + 1}`}
+              </option>
+            ))}
+          </select>
+
+          <button type="button" className="primary-action" onClick={isScanning ? stopScanner : startScanner}>
+            {isScanning ? 'Stop' : 'Start'}
+          </button>
+
+          <label className="upload-action">
+            Upload
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileScan} />
+          </label>
+        </div>
+
+        <div className={`scanner-reader ${isScanning ? 'is-active' : ''}`}>
+          <div id="qr-reader" />
+          {!isScanning && (
+            <div className="scanner-placeholder">
+              <ScanIcon />
+            </div>
+          )}
+        </div>
+      </section>
+
+      <aside className="scanner-result-panel" aria-live="polite">
+        <span className="scanner-status">{scanStatus}</span>
+        <h3>Scan Result</h3>
+
+        {scanResult ? (
+          <>
+            <pre>{scanResult}</pre>
+            {scanUpdate && (
+              <div className={`scanner-update ${scanUpdate.changed ? 'is-sent' : 'is-unchanged'}`}>
+                <strong>{scanUpdate.bagId}</strong>
+                <span>{scanUpdate.message}</span>
+                <small>Batch: {scanUpdate.batchNumber || 'Not found'} | Status: {scanUpdate.status}</small>
+              </div>
+            )}
+            <div className="scanner-result-actions">
+              <button type="button" className="outline-action" onClick={copyResult}>Copy</button>
+              {isResultUrl && (
+                <a className="outline-action scanner-link" href={scanResult} target="_blank" rel="noreferrer">
+                  Open
+                </a>
+              )}
+            </div>
+          </>
+        ) : (
+          <p>No QR code scanned yet.</p>
+        )}
+
+        {scanError && <p className="form-hint form-hint--error">{scanError}</p>}
+      </aside>
+    </div>
+  );
+}
+
 function App() {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const dealerDetailsByLanguage = {
@@ -233,18 +656,14 @@ function App() {
   const [farmerData, setFarmerData] = useState(null);
   const [dealerDetails, setDealerDetails] = useState(dealerDetailsByLanguage.en);
   const [isEditingDealer, setIsEditingDealer] = useState(false);
-  const [scanMode, setScanMode] = useState('camera');
-  const [scannerActive, setScannerActive] = useState(false);
-  const [scanError, setScanError] = useState('');
-  const [scannedText, setScannedText] = useState('');
-  const [scannedBatch, setScannedBatch] = useState(null);
-  const [scanSaveStatus, setScanSaveStatus] = useState('');
   const [scanRecords, setScanRecords] = useState([]);
+  const [saleHistory, setSaleHistory] = useState([]);
+const [saleHistoryStatus, setSaleHistoryStatus] = useState({ status: 'idle', message: '' });
   const [recordsStatus, setRecordsStatus] = useState({
     status: 'idle',
     message: '',
   });
-  const html5QrCodeRef = useRef(null);
+  const [selectedScanRecord, setSelectedScanRecord] = useState(null);
   const texts = translations[language];
 
   const digitMap = {
@@ -265,46 +684,28 @@ function App() {
     }).format(new Date(value));
   };
 
-  // Hardcoded farmer data
-  const farmerDatabase = {
-    '123456789012': {
-      name: 'Rajesh Kumar',
-      age: 45,
-      gender: 'Male',
-      aadhar: '123456789012',
-      phone: '+91 98765 43210',
-      address: 'Village Nandpur, Taluka Indore, District Indore, Madhya Pradesh',
-      limit: 500,
-      purchased: 280
-    },
-    '987654321098': {
-      name: 'Priya Sharma',
-      age: 38,
-      gender: 'Female',
-      aadhar: '987654321098',
-      phone: '+91 87654 32109',
-      address: 'Village Rajkheda, Taluka Ujjain, District Ujjain, Madhya Pradesh',
-      limit: 400,
-      purchased: 120
-    },
-    '456789123456': {
-      name: 'Vikram Singh',
-      age: 52,
-      gender: 'Male',
-      aadhar: '456789123456',
-      phone: '+91 76543 21098',
-      address: 'Village Depalpur, Taluka Mhow, District Indore, Madhya Pradesh',
-      limit: 600,
-      purchased: 450
+  const searchFarmer = async () => {
+    if (!aadharInput) {
+      alert('Please enter Aadhar ID');
+      return;
     }
-  };
-
-  const searchFarmer = () => {
-    if (farmerDatabase[aadharInput]) {
-      setFarmerData(farmerDatabase[aadharInput]);
-    } else {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/farmers/${aadharInput}`);
+      if (response.status === 404) {
+        setFarmerData(null);
+        alert(texts.farmerNotFound);
+        return;
+      }
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Error fetching farmer');
+      }
+      const payload = await response.json();
+      setFarmerData(payload.farmer);
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
       setFarmerData(null);
-      alert(texts.farmerNotFound);
     }
   };
 
@@ -323,54 +724,11 @@ function App() {
     setDealerDetails((prev) => ({ ...prev, [field]: value }));
   };
 
-  const clearScanResult = () => {
-    setScannedText('');
-    setScannedBatch(null);
-    setScanError('');
-    setScanSaveStatus('');
-  };
-
-  const parseDecodedPayload = (decodedText) => {
-    try {
-      const parsed = JSON.parse(decodedText);
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    } catch (error) {
-      return {};
-    }
-  };
-
-  const fetchBatchDetails = async (decodedText) => {
-    try {
-      const decodedPayload = parseDecodedPayload(decodedText);
-      const res = await fetch(`${API_BASE_URL}/api/batches`);
-      if (!res.ok) {
-        throw new Error(`Backend returned ${res.status}`);
-      }
-      const payload = await res.json();
-      const batches = payload.batches || [];
-      const decodedBagId = decodedPayload.bagId || decodedText;
-      const decodedBatchNumber = decodedPayload.batchNumber || decodedText;
-
-      return batches.find((b) =>
-        b.batch_number === decodedBatchNumber ||
-        (Array.isArray(b.bag_ids) && b.bag_ids.includes(decodedBagId)) ||
-        (Array.isArray(b.qr_codes) && b.qr_codes.some((qrCode) =>
-          qrCode?.bagId === decodedBagId ||
-          qrCode?.payload === decodedText ||
-          qrCode === decodedText
-        ))
-      ) || null;
-    } catch (error) {
-      console.warn('Could not fetch batches:', error.message || error);
-      return null;
-    }
-  };
-
   const loadScanRecords = async () => {
     try {
       setRecordsStatus({ status: 'loading', message: 'Loading previous scan records...' });
       const response = await fetch(`${API_BASE_URL}/api/scan-records`);
-      const payload = await response.json();
+      const payload = await readJsonResponse(response);
 
       if (!response.ok) {
         throw new Error(payload.error || 'Unable to load previous scan records.');
@@ -389,10 +747,20 @@ function App() {
       });
     }
   };
-
-  const saveScanRecord = async (decodedText, batch) => {
+const loadSaleHistory = async () => {
+  try {
+    setSaleHistoryStatus({ status: 'loading', message: 'Loading sales history...' });
+    const response = await fetch(`${API_BASE_URL}/api/farmer-transactions`);
+    const payload = await readJsonResponse(response);
+    if (!response.ok) throw new Error(payload.error || 'Unable to load sales history.');
+    setSaleHistory(payload.transactions || []);
+    setSaleHistoryStatus({ status: 'success', message: '' });
+  } catch (error) {
+    setSaleHistoryStatus({ status: 'error', message: error.message });
+  }
+};
+  async function saveScanRecord(decodedText, batch, extraInfo = {}) {
     try {
-      setScanSaveStatus('Saving scan record...');
       const decodedPayload = parseDecodedPayload(decodedText);
       const response = await fetch(`${API_BASE_URL}/api/scan-records`, {
         method: 'POST',
@@ -401,6 +769,10 @@ function App() {
           decodedText,
           decodedPayload,
           batch,
+          dealer_id: dealerDetails?.id || null,
+          dealer_name: dealerDetails?.name || null,
+          location: dealerDetails?.address || null,
+          ...extraInfo,
         }),
       });
       const payload = await response.json();
@@ -409,114 +781,16 @@ function App() {
         throw new Error(payload.error || 'Unable to save scan record.');
       }
 
-      setScanSaveStatus('Scan record saved.');
       setScanRecords((records) => [payload.scanRecord, ...records]);
     } catch (error) {
-      setScanSaveStatus(error.message || 'Scan result shown, but saving failed.');
+      console.error(error.message || 'Scan record saving failed.');
     }
-  };
-
-  const stopScanner = async () => {
-    const qr = html5QrCodeRef.current;
-    if (qr) {
-      try {
-        await qr.stop();
-      } catch (error) {
-        // ignore stop failures
-      }
-      try {
-        qr.clear();
-      } catch (error) {
-        // ignore clear failures
-      }
-      html5QrCodeRef.current = null;
-    }
-    setScannerActive(false);
-  };
-
-  const handleDecodedValue = async (decodedText) => {
-    setScannedText(decodedText);
-    const batch = await fetchBatchDetails(decodedText);
-    setScannedBatch(batch);
-    await saveScanRecord(decodedText, batch);
-    if (scanMode === 'camera') {
-      await stopScanner();
-    }
-  };
-
-  const startCameraScanner = async () => {
-    clearScanResult();
-    setScanError('');
-    if (scannerActive) {
-      return;
-    }
-
-    try {
-      const { Html5Qrcode } = await import('html5-qrcode');
-      const qrRegionId = 'qr-reader';
-      const html5QrCode = new Html5Qrcode(qrRegionId);
-      html5QrCodeRef.current = html5QrCode;
-
-      const config = { fps: 10, qrbox: { width: 250, height: 250 } };
-
-      const qrSuccess = async (decodedText) => {
-        await handleDecodedValue(decodedText);
-      };
-
-      const qrFailure = () => {
-        // ignore occasional failed frames
-      };
-
-      await html5QrCode.start({ facingMode: 'environment' }, config, qrSuccess, qrFailure);
-      setScannerActive(true);
-    } catch (error) {
-      setScanError(`Camera scanner failed: ${error?.message || error}`);
-      console.error('Camera scanner error:', error);
-      setScannerActive(false);
-    }
-  };
-
-  const handleUploadFile = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    clearScanResult();
-    setScanError('');
-
-    try {
-      const { Html5Qrcode } = await import('html5-qrcode');
-      let html5QrCode = html5QrCodeRef.current;
-      if (!html5QrCode) {
-        html5QrCode = new Html5Qrcode('qr-reader');
-        html5QrCodeRef.current = html5QrCode;
-      }
-
-      const result = await html5QrCode.scanFileV2(file, true);
-      const decodedText = result?.decodedText || (Array.isArray(result) ? result[0]?.decodedText : null);
-
-      if (decodedText) {
-        await handleDecodedValue(decodedText);
-      } else {
-        setScanError('No QR code found in the uploaded image.');
-      }
-    } catch (error) {
-      setScanError(`Upload scan failed: ${error?.message || error}`);
-      console.error('Upload scan error:', error);
-    } finally {
-      event.target.value = '';
-    }
-  };
+  }
 
   useEffect(() => {
-    if (currentPage !== 'scan') {
-      stopScanner();
-    }
-  }, [currentPage]);
-
-  useEffect(() => {
-    if (currentPage === 'previous') {
-      loadScanRecords();
-    }
-  }, [currentPage]);
+  if (currentPage === 'previous') loadScanRecords();
+  if (currentPage === 'history') loadSaleHistory();
+}, [currentPage]);
 
   return (
     <div className="dealer-dashboard">
@@ -659,12 +933,71 @@ function App() {
                       <span className="value">{localizeDigits(farmerData.limit - farmerData.purchased)} kg</span>
                     </div>
                   </div>
-                  <button className="proceed-button">{texts.proceedToScan}</button>
+                  <button className="proceed-button" onClick={() => setCurrentPage('bagScan')}>{texts.proceedToScan}</button>
                 </div>
               )}
             </section>
           </>
         )}
+{currentPage === 'bagScan' && (
+  <>
+    <header className="top-bar">
+      <div>
+        <p className="page-label">{texts.pageLabel}</p>
+        <h2>{texts.scanBatch}</h2>
+        <p className="subtitle">{texts.scanBatchSubtitle}</p>
+      </div>
+    </header>
+    <p>Bag Scanner Page Loaded</p>
+    <NewBagScannerPage setCurrentPage={setCurrentPage} farmerData={farmerData} />
+  </>
+)}
+
+        {currentPage === 'history' && (
+  <>
+    <header className="top-bar">
+      <div>
+        <p className="page-label">{texts.pageLabel}</p>
+        <h2>{texts.salesHistory}</h2>
+        <p className="subtitle">{texts.salesHistorySubtitle}</p>
+      </div>
+    </header>
+    <section className="records-section">
+      {saleHistoryStatus.status === 'loading' && <p>{saleHistoryStatus.message}</p>}
+      {saleHistoryStatus.status === 'error' && <p className="form-hint form-hint--error">{saleHistoryStatus.message}</p>}
+      {saleHistoryStatus.status === 'success' && saleHistory.length === 0 && (
+        <p>No sales recorded yet.</p>
+      )}
+      {saleHistory.length > 0 && (
+        <div className="records-table-wrap">
+          <table className="records-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+          <th>Farmer Aadhar</th>
+          <th>Product</th>
+          <th>Batch</th>
+          <th>Quantity (kg)</th>
+          <th>Season</th>
+              </tr>
+            </thead>
+            <tbody>
+  {saleHistory.map((record) => (
+    <tr key={record.id}>
+      <td>{new Date(record.transaction_datetime || record.created_at).toLocaleString('en-IN')}</td>
+      <td>{record.farmer_aadhar_card_id}</td>
+      <td>{record.fertilizer_name || 'N/A'}</td>
+      <td>{record.batch_number || 'N/A'}</td>
+      <td>{record.kg} kg</td>
+    </tr>
+  ))}
+</tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  </>
+)}
 
         {currentPage === 'scan' && (
           <>
@@ -675,144 +1008,114 @@ function App() {
                 <p className="subtitle">{texts.scanBatchSubtitle}</p>
               </div>
             </header>
-            <section className="scan-section">
-              <div className="scanner-card">
-                <div className="scan-mode-buttons">
-                  <button
-                    className={`scan-mode-button ${scanMode === 'camera' ? 'active' : ''}`}
-                    onClick={() => {
-                      setScanMode('camera');
-                      clearScanResult();
-                      setScanError('');
-                    }}
-                  >
-                    Camera
-                  </button>
-                  <button
-                    className={`scan-mode-button ${scanMode === 'upload' ? 'active' : ''}`}
-                    onClick={() => {
-                      setScanMode('upload');
-                      clearScanResult();
-                      setScanError('');
-                      stopScanner();
-                    }}
-                  >
-                    Upload image
-                  </button>
-                </div>
-
-                <div className="qr-reader-box" id="qr-reader" style={{ display: scanMode === 'camera' ? 'block' : 'none' }} />
-                {scanMode === 'camera' ? (
-                  <div className="scanner-controls">
-                    {!scannerActive ? (
-                      <button className="scanner-button" onClick={startCameraScanner}>
-                        Start camera scan
-                      </button>
-                    ) : (
-                      <button className="scanner-button" onClick={stopScanner}>
-                        Stop camera scan
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="upload-panel">
-                    <label className="upload-button">
-                      Upload QR image
-                      <input type="file" accept="image/*" onChange={handleUploadFile} hidden />
-                    </label>
-                  </div>
-                )}
-
-                <div className="scan-result">
-                  <h4>Scan Result</h4>
-                  {scanError ? (
-                    <p className="scan-error">{scanError}</p>
-                  ) : scannedText ? (
-                    <div className="scan-info">
-                      <p><strong>Decoded text:</strong> {scannedText}</p>
-                      {scannedBatch ? (
-                        <div className="batch-info">
-                          <p><strong>Batch Number:</strong> {scannedBatch.batch_number}</p>
-                          <p><strong>Product:</strong> {scannedBatch.product_name || 'N/A'}</p>
-                          <p><strong>Number of Bags:</strong> {scannedBatch.number_of_bags}</p>
-                          <p><strong>Manufacturer:</strong> {scannedBatch.manufacturer || 'N/A'}</p>
-                        </div>
-                      ) : null}
-                      {scanSaveStatus ? <p className="scan-save-status">{scanSaveStatus}</p> : null}
-                    </div>
-                  ) : (
-                    <p>Choose a scan mode and begin scanning.</p>
-                  )}
-                </div>
-              </div>
-            </section>
+            <ScannerPage dealerDetails={dealerDetails} loadScanRecords={loadScanRecords} />
           </>
         )}
 
         {currentPage === 'previous' && (
-          <>
-            <header className="top-bar">
-              <div>
-                <p className="page-label">{texts.pageLabel}</p>
-                <h2>{texts.previousRecords}</h2>
-                <p className="subtitle">{texts.previousRecordsSubtitle}</p>
-              </div>
-            </header>
-            <section className="records-section">
-              {recordsStatus.status === 'loading' && <p className="records-message">{recordsStatus.message}</p>}
-              {recordsStatus.status === 'error' && <p className="records-message error">{recordsStatus.message}</p>}
-              {recordsStatus.status === 'success' && scanRecords.length === 0 && (
-                <p className="records-message">{recordsStatus.message}</p>
-              )}
-              {scanRecords.length > 0 && (
-                <div className="records-table-wrap">
-                  <table className="records-table">
-                    <thead>
-                      <tr>
-                        <th>Scanned At</th>
-                        <th>Bag ID</th>
-                        <th>Batch Number</th>
-                        <th>Product</th>
-                        <th>Bags</th>
-                        <th>Manufacturer</th>
-                        <th>Weight</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {scanRecords.map((record) => (
-                        <tr key={record.id}>
-                          <td>{formatDateTime(record.scanned_at)}</td>
-                          <td>{record.bag_id || 'N/A'}</td>
-                          <td>{record.batch_number || 'N/A'}</td>
-                          <td>{record.product_name || 'N/A'}</td>
-                          <td>{record.number_of_bags || 'N/A'}</td>
-                          <td>{record.manufacturer || 'N/A'}</td>
-                          <td>{record.bag_weight || 'N/A'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-          </>
-        )}
+  <>
+    <header className="top-bar">
+      <div>
+        <p className="page-label">{texts.pageLabel}</p>
+        <h2>{texts.previousRecords}</h2>
+        <p className="subtitle">{texts.previousRecordsSubtitle}</p>
+      </div>
+    </header>
+    <section className="records-section">
+      {recordsStatus.status === 'loading' && <p className="records-message">{recordsStatus.message}</p>}
+      {recordsStatus.status === 'error' && <p className="records-message error">{recordsStatus.message}</p>}
+      {recordsStatus.status === 'success' && scanRecords.length === 0 && (
+        <p className="records-message">{recordsStatus.message}</p>
+      )}
 
-        {currentPage === 'history' && (
-          <>
-            <header className="top-bar">
-              <div>
-                <p className="page-label">{texts.pageLabel}</p>
-                <h2>{texts.salesHistory}</h2>
-                <p className="subtitle">{texts.salesHistorySubtitle}</p>
-              </div>
-            </header>
-            <section className="empty-section">
-              <p>{texts.featureComingSoon}</p>
-            </section>
-          </>
-        )}
+      {scanRecords.length > 0 && (
+        <div className="records-table-wrap">
+          <table className="records-table">
+            <thead>
+              <tr>
+                <th>Scanned At</th>
+                <th>Bag ID</th>
+                <th>Batch Number</th>
+                <th>Product</th>
+                <th>Bags</th>
+                <th>Manufacturer</th>
+                <th>Weight</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {scanRecords.map((record) => (
+                <tr key={record.id}>
+                  <td>{formatDateTime(record.scanned_at)}</td>
+                  <td><span className="record-chip">{record.bag_id || 'N/A'}</span></td>
+                  <td>{record.batch_number || 'N/A'}</td>
+                  <td>{record.product_name || 'N/A'}</td>
+                  <td>{record.number_of_bags || 'N/A'}</td>
+                  <td>{record.manufacturer || 'N/A'}</td>
+                  <td>{record.bag_weight || 'N/A'}</td>
+                  <td>
+                    {record.farmer_aadhar_id ? (
+                      <button
+                        className="search-button"
+                        style={{ padding: '6px 14px', fontSize: '0.85rem' }}
+                        onClick={() => setSelectedScanRecord(record)}
+                      >
+                        View Details
+                      </button>
+                    ) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
+      {selectedScanRecord && (
+        <div className="details-modal-backdrop" onClick={() => setSelectedScanRecord(null)}>
+          <div className="details-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="details-modal__header">
+              <div>
+                <h3>Sale Details</h3>
+                <p>Bag and farmer information for this transaction</p>
+              </div>
+              <button className="outline-action" onClick={() => setSelectedScanRecord(null)}>
+                Close
+              </button>
+            </div>
+
+            <div className="batch-detail-grid">
+              <div><span>Bag ID: </span><strong>{selectedScanRecord.bag_id || '—'}</strong></div>
+              <div><span>Batch Number: </span><strong>{selectedScanRecord.batch_number || '—'}</strong></div>
+              <div><span>Product: </span><strong>{selectedScanRecord.product_name || '—'}</strong></div>
+              <div><span>Weight: </span><strong>{selectedScanRecord.bag_weight || '—'}</strong></div>
+              <div><span>Status: </span><strong>{selectedScanRecord.status || '—'}</strong></div>
+              <div><span>Sold At: </span><strong>{formatDateTime(selectedScanRecord.scanned_at)}</strong></div>
+            </div>
+
+            <hr style={{ margin: '16px 0', opacity: 0.2 }} />
+            <h4 style={{ marginBottom: '12px' }}>Farmer Details</h4>
+
+            <div className="batch-detail-grid">
+              <div><span>Aadhar ID: </span><strong>{selectedScanRecord.farmer_aadhar_id || '—'}</strong></div>
+              <div><span>Name: </span><strong>{selectedScanRecord.farmer_name || '—'}</strong></div>
+              <div><span>Village: </span><strong>{selectedScanRecord.farmer_village || '—'}</strong></div>
+              <div><span>District: </span><strong>{selectedScanRecord.farmer_district || '—'}</strong></div>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </section>
+  </>
+)}
+                 
+                    
+
+                  
+            
+          
+        
         {currentPage === 'alerts' && (
           <>
             <header className="top-bar">

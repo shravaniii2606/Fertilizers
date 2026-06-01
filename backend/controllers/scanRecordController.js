@@ -22,16 +22,31 @@ function normalizeScanRecordPayload(body) {
     : parseDecodedPayload(decodedText);
   const batch = body.batch && typeof body.batch === 'object' ? body.batch : {};
 
+  const number_of_bags = Number.isInteger(batch.number_of_bags) ? batch.number_of_bags : null;
+  const manufacturer = batch.manufacturer || decodedPayload.manufacturer || body.manufacturer || null;
+  const bag_weight = batch.bag_weight || decodedPayload.bagWeight || body.bagWeight || null;
+  const matched_batch_id = batch.id || null;
+  const status = body.status || null;
+  const changed = typeof body.changed === 'boolean' ? body.changed : null;
+  const dealer_id = body.dealer_id || null;
+  const dealer_name = body.dealer_name || null;
+  const location = body.location || null;
+
   return {
     decoded_text: decodedText,
     decoded_payload: decodedPayload,
     bag_id: decodedPayload.bagId || body.bagId || null,
     batch_number: batch.batch_number || decodedPayload.batchNumber || body.batchNumber || null,
     product_name: batch.product_name || decodedPayload.productName || body.productName || null,
-    number_of_bags: Number.isInteger(batch.number_of_bags) ? batch.number_of_bags : null,
-    manufacturer: batch.manufacturer || decodedPayload.manufacturer || body.manufacturer || null,
-    bag_weight: batch.bag_weight || decodedPayload.bagWeight || body.bagWeight || null,
-    matched_batch_id: batch.id || null,
+    number_of_bags,
+    manufacturer,
+    bag_weight,
+    matched_batch_id,
+    status,
+    changed,
+    dealer_id,
+    dealer_name,
+    location,
   };
 }
 
