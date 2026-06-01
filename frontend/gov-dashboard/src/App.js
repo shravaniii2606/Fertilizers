@@ -9,7 +9,6 @@ const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
   { id: 'add', label: 'Add', icon: 'plus' },
   { id: 'records', label: 'View Previous', icon: 'document' },
-  { id: 'analysis', label: 'AI Analysis', icon: 'brain' },
   { id: 'alerts', label: 'Alerts', icon: 'bell' },
   { id: 'farmers', label: 'Farmer Records', icon: 'user' },
   { id: 'scanner', label: 'Scanner', icon: 'scan' },
@@ -19,7 +18,7 @@ const statCards = [
   {
     id: 'distribution',
     label: 'Total Distribution',
-    value: '12,540',
+    value: '...',
     unit: 'Bags',
     icon: 'bag',
     accent: 'green',
@@ -63,10 +62,6 @@ const detailContent = {
     title: 'Previous Distribution Records',
     body: 'Inspect prior submissions, filter records, and manage updates to existing distribution entries.',
   },
-  analysis: {
-    title: 'AI Distribution Analysis',
-    body: 'Review anomaly detection, delivery trends, and high-risk clusters surfaced by the analysis engine.',
-  },
   alerts: {
     title: 'Alerts Center',
     body: 'See suspicious activity, pending escalations, and operational warnings that require quick follow-up.',
@@ -94,10 +89,6 @@ const detailContent = {
   activeAlerts: {
     title: 'Active Alerts',
     body: 'Monitor unresolved warnings and suspicious events that still need verification or action.',
-  },
-  logout: {
-    title: 'Logout',
-    body: 'Use logout when you are done reviewing the dashboard or when another admin needs secure access.',
   },
 };
 
@@ -354,7 +345,170 @@ function Icon({ type }) {
   }
 }
 
-function DashboardPage({ activeSection, setActiveSection }) {
+function formatCount(value) {
+  return new Intl.NumberFormat('en-IN').format(value);
+}
+
+function getUniqueBagCount(records) {
+  const bagIds = new Set();
+
+  records.forEach((record) => {
+    const bagId = typeof record.bag_id === 'string' ? record.bag_id.trim() : '';
+    if (bagId) {
+      bagIds.add(bagId);
+    }
+  });
+
+  return bagIds.size;
+}
+
+function getDistributionFromScanRecords(records) {
+  const receivedBatchTotals = new Map();
+  const receivedBagBatches = new Map();
+  const soldBagBatches = new Map();
+  const dealerSoldBags = new Set();
+
+  records.forEach((record) => {
+    const status = String(record.status || '').trim().toLowerCase();
+    const bagId = typeof record.bag_id === 'string' ? record.bag_id.trim() : '';
+    const batchNumber = typeof record.batch_number === 'string' ? record.batch_number.trim() : '';
+    const numberOfBags = Number(record.number_of_bags);
+    const hasFarmerSale = Boolean(record.farmer_aadhar_id || record.farmer_name || record.decoded_payload?.farmer_aadhar);
+
+    if (bagId && (status === 'sold' || hasFarmerSale)) {
+      dealerSoldBags.add(bagId);
+    }
+
+    if (status === 'received') {
+      if (bagId) {
+        receivedBagBatches.set(bagId, batchNumber);
+        return;
+      }
+
+      if (batchNumber && Number.isFinite(numberOfBags) && numberOfBags > 0 && record.changed !== false) {
+        receivedBatchTotals.set(batchNumber, Math.max(receivedBatchTotals.get(batchNumber) || 0, numberOfBags));
+      }
+    }
+
+    if (status === 'sold' && bagId) {
+      soldBagBatches.set(bagId, batchNumber);
+    }
+  });
+
+  if (dealerSoldBags.size > 0) {
+    return dealerSoldBags.size;
+  }
+
+  const countedBatches = new Set(receivedBatchTotals.keys());
+  const countedBags = new Set();
+  let total = Array.from(receivedBatchTotals.values()).reduce((sum, count) => sum + count, 0);
+
+  receivedBagBatches.forEach((batchNumber, bagId) => {
+    if (!countedBatches.has(batchNumber)) {
+      countedBags.add(bagId);
+      total += 1;
+    }
+  });
+
+  soldBagBatches.forEach((batchNumber, bagId) => {
+    if (!countedBags.has(bagId) && !countedBatches.has(batchNumber)) {
+      total += 1;
+    }
+  });
+
+  return total;
+}
+
+function useDashboardMetrics() {
+  const [metrics, setMetrics] = useState({
+    distribution: null,
+    dealers: 1,
+    registeredFarmers: null,
+    activeAlerts: null,
+  });
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadMetricData() {
+      try {
+        const [scanRecordsResponse, farmerMetricsResponse, alertsResponse] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/scan-records`),
+          fetch(`${API_BASE_URL}/api/farmer-records/metrics`),
+          fetch(`${API_BASE_URL}/api/ai/alerts`),
+        ]);
+
+        const [scanRecordsResult, farmerMetricsResult, alertsResult] = await Promise.all([
+          readJsonResponse(scanRecordsResponse),
+          readJsonResponse(farmerMetricsResponse),
+          readJsonResponse(alertsResponse),
+        ]);
+
+        if (!scanRecordsResponse.ok) {
+          throw new Error(scanRecordsResult.error || 'Unable to load dealer scan totals.');
+        }
+
+        if (!farmerMetricsResponse.ok) {
+          throw new Error(farmerMetricsResult.error || 'Unable to load farmer totals.');
+        }
+
+        if (!alertsResponse.ok) {
+          throw new Error(alertsResult.error || 'Unable to load active alerts.');
+        }
+
+        let distributionTotal = getDistributionFromScanRecords(scanRecordsResult.scanRecords || []);
+
+        if (distributionTotal === 0) {
+          const transactionsResponse = await fetch(`${API_BASE_URL}/api/farmer-transactions`);
+          const transactionsResult = await readJsonResponse(transactionsResponse);
+
+          if (!transactionsResponse.ok) {
+            throw new Error(transactionsResult.error || 'Unable to load distribution totals.');
+          }
+
+          distributionTotal = getUniqueBagCount(transactionsResult.transactions || []);
+        }
+
+        if (!ignore) {
+          setMetrics({
+            distribution: distributionTotal,
+            dealers: 1,
+            registeredFarmers: farmerMetricsResult.totalFarmers || 0,
+            activeAlerts: (alertsResult.alerts || []).filter((alert) => (
+              String(alert.status || '').trim().toLowerCase() !== 'resolved'
+            )).length,
+          });
+        }
+      } catch (error) {
+        console.error(error.message || 'Unable to load dashboard metrics.');
+        if (!ignore) {
+          setMetrics({
+            distribution: 0,
+            dealers: 1,
+            registeredFarmers: 0,
+            activeAlerts: 0,
+          });
+        }
+      }
+    }
+
+    loadMetricData();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  return metrics;
+}
+
+function DashboardPage({ activeSection, setActiveSection, metrics }) {
+  const dashboardStats = statCards.map((stat) => (
+    Object.prototype.hasOwnProperty.call(metrics, stat.id)
+      ? { ...stat, value: metrics[stat.id] === null ? '...' : formatCount(metrics[stat.id]) }
+      : stat
+  ));
+
   return (
     <>
       <section className="hero-copy">
@@ -363,7 +517,7 @@ function DashboardPage({ activeSection, setActiveSection }) {
       </section>
 
       <section className="stats-panel">
-        {statCards.map((stat) => (
+        {dashboardStats.map((stat) => (
           <button
             key={stat.id}
             type="button"
@@ -1231,9 +1385,6 @@ function AlertsPage() {
 
       <div className="metric-grid">
         <MetricCard icon="warning" label="Total Alerts" value={alerts.length} accent="orange" />
-        <MetricCard icon="bell"    label="High Priority" value={alerts.filter(a => a.severity === 'High').length} accent="purple" />
-        <MetricCard icon="document" label="Open" value={alerts.filter(a => a.status === 'Open').length} accent="blue" />
-        <MetricCard icon="grid"    label="Districts Affected" value={new Set(alerts.map(a => a.district)).size} accent="green" />
       </div>
 
       {alerts.length > 0 ? (
@@ -1571,8 +1722,6 @@ function FarmerRecordsPage() {
       )}
       <div className="metric-grid">
         <MetricCard icon="user" label="Total Farmers" value={farmerMetrics.totalFarmers.toLocaleString('en-IN')} accent="teal" />
-        <MetricCard icon="document" label="Total Records" value={farmers.length.toLocaleString('en-IN')} accent="blue" />
-        <MetricCard icon="warning" label="Filtered View" value={filteredFarmers.length.toLocaleString('en-IN')} accent="orange" />
       </div>
       <DataTable
         columns={['Aadhar ID', 'Name', 'Village', 'District', 'Limit (kg)', 'Action']}
@@ -2035,6 +2184,7 @@ function DataTable({ columns, rows, footer, onAction }) {
 function App() {
   const [activeSection, setActiveSection] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const metrics = useDashboardMetrics();
 
   const activeDetail = useMemo(
     () => detailContent[activeSection] || detailContent.dashboard,
@@ -2069,19 +2219,6 @@ function App() {
           ))}
         </nav>
 
-        <button
-          type="button"
-          className={`sidebar-link sidebar-link--logout ${activeSection === 'logout' ? 'is-active' : ''}`}
-          onClick={() => {
-            setActiveSection('logout');
-            setSidebarOpen(false);
-          }}
-        >
-          <span className="sidebar-link__icon">
-            <Icon type="logout" />
-          </span>
-          <span>Logout</span>
-        </button>
       </aside>
 
       <main className="main-content">
@@ -2113,18 +2250,65 @@ function App() {
         </header>
 
         {activeSection === 'dashboard' && (
-          <DashboardPage activeSection={activeSection} setActiveSection={setActiveSection} />
+          <DashboardPage activeSection={activeSection} setActiveSection={setActiveSection} metrics={metrics} />
         )}
         {activeSection === 'add' && <AddPage />}
         {activeSection === 'records' && <PreviousPage />}
-        {activeSection === 'analysis' && <AnalysisPage />}
         {activeSection === 'alerts' && <AlertsPage />}
         {activeSection === 'farmers' && <FarmerRecordsPage />}
         {activeSection === 'scanner' && <ScannerPage />}
-        {!['dashboard', 'add', 'records', 'analysis', 'alerts', 'farmers', 'scanner'].includes(activeSection) && (
+        {!['dashboard', 'add', 'records', 'alerts', 'farmers', 'scanner'].includes(activeSection) && (
           <section className="detail-panel" aria-live="polite">
             <h3>{activeDetail.title}</h3>
             <p>{activeDetail.body}</p>
+            {activeSection === 'distribution' && (
+              <div className="detail-metric accent-green">
+                <span className="detail-metric__icon">
+                  <Icon type="bag" />
+                </span>
+                <span>
+                  <span className="detail-metric__label">Total distributed from dealer records</span>
+                  <strong>{metrics.distribution === null ? 'Loading...' : formatCount(metrics.distribution)}</strong>
+                  <small>Bags</small>
+                </span>
+              </div>
+            )}
+            {activeSection === 'dealers' && (
+              <div className="detail-metric accent-blue">
+                <span className="detail-metric__icon">
+                  <Icon type="store" />
+                </span>
+                <span>
+                  <span className="detail-metric__label">Registered dealers</span>
+                  <strong>{formatCount(metrics.dealers)}</strong>
+                  <small>Dealers</small>
+                </span>
+              </div>
+            )}
+            {activeSection === 'registeredFarmers' && (
+              <div className="detail-metric accent-purple">
+                <span className="detail-metric__icon">
+                  <Icon type="farmer" />
+                </span>
+                <span>
+                  <span className="detail-metric__label">Farmers in farmer records</span>
+                  <strong>{metrics.registeredFarmers === null ? 'Loading...' : formatCount(metrics.registeredFarmers)}</strong>
+                  <small>Farmers</small>
+                </span>
+              </div>
+            )}
+            {activeSection === 'activeAlerts' && (
+              <div className="detail-metric accent-orange">
+                <span className="detail-metric__icon">
+                  <Icon type="warning" />
+                </span>
+                <span>
+                  <span className="detail-metric__label">Unresolved alerts</span>
+                  <strong>{metrics.activeAlerts === null ? 'Loading...' : formatCount(metrics.activeAlerts)}</strong>
+                  <small>Alerts</small>
+                </span>
+              </div>
+            )}
           </section>
         )}
 
