@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getSupabaseClient } = require('../supabase'); // ← matches batchController
-
+const { createScanRecord, listScanRecords, getTotalBagsScanned } = require('../controllers/scanRecordController');
 router.get('/', async (req, res) => {
   try {
     const supabase = getSupabaseClient();
@@ -47,5 +47,5 @@ router.post('/', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
+router.get('/total-bags', getTotalBagsScanned);
 module.exports = router;
