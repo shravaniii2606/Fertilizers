@@ -474,74 +474,62 @@ function ScannerPage(props) {
 
 
 
-  async function handleFileScan(event) {
-    const [file] = event.target.files || [];
-    if (!file) return;
+ async function handleFileScan(event) {
+  const [file] = event.target.files || [];
+  if (!file) return;
 
-    setScanError('');
-    setScanStatus('Reading image');
+  setScanError('');
+  setScanStatus('Reading image');
 
+  try {
+    const scanner = await getScanner();
+    if (scanner.isScanning) await stopScanner();
+
+    let decodedText = null;
+
+    // PRIMARY: Server-side decode (100% reliable)
     try {
-      const scanner = await getScanner();
-
-      if (scanner.isScanning) {
-        await stopScanner();
+      const formData = new FormData();
+      formData.append('image', file);
+      const response = await fetch(`${API_BASE_URL}/api/qrcodes/decode`, {
+        method: 'POST',
+        body: formData,
+      });
+      const result = await response.json();
+      if (response.ok && result.decodedText) {
+        decodedText = result.decodedText;
       }
+    } catch (e) {
+      console.warn('Server decode failed, trying browser:', e);
+    }
 
-      let decodedText = null;
-      let scanErrorOccurred = null;
-
-      // 1. Try scanning original file
+    // FALLBACK: Browser-side html5-qrcode
+    if (!decodedText) {
       try {
         decodedText = await scanner.scanFile(file, true);
-      } catch (err1) {
-        scanErrorOccurred = err1;
-      }
+      } catch (e) {}
+    }
 
-      // 2. Try scanning at 800px resize
-      if (!decodedText) {
+    // FALLBACK: Resized versions
+    if (!decodedText) {
+      for (const size of [1200, 800, 400]) {
         try {
-          const resized800 = await resizeImage(file, 800);
-          decodedText = await scanner.scanFile(resized800, true);
-        } catch (err2) {
-          scanErrorOccurred = err2;
-        }
-      }
-
-      // 3. Try scanning at 400px resize
-      if (!decodedText) {
-        try {
-          const resized400 = await resizeImage(file, 400);
-          decodedText = await scanner.scanFile(resized400, true);
-        } catch (err3) {
-          scanErrorOccurred = err3;
-        }
-      }
-
-      // 4. Try scanning with native BarcodeDetector if supported
-      if (!decodedText && window.BarcodeDetector && window.createImageBitmap) {
-        try {
-          decodedText = await scanFileWithNativeDetector(file);
-        } catch (err4) {
-          scanErrorOccurred = err4;
-        }
-      }
-
-      if (!decodedText) {
-        throw scanErrorOccurred || new Error('No QR code could be read from this image.');
-      }
-
-      await handleScanSuccess(decodedText);
-    } catch (error) {
-      setScanStatus('No QR found');
-      setScanError(error?.message || 'No QR code could be read from this image.');
-    } finally {
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
+          const resized = await resizeImage(file, size);
+          decodedText = await scanner.scanFile(resized, true);
+          if (decodedText) break;
+        } catch (e) {}
       }
     }
-  }
 
+    if (!decodedText) throw new Error('No QR code could be read from this image.');
+    await handleScanSuccess(decodedText);
+  } catch (error) {
+    setScanStatus('No QR found');
+    setScanError(error?.message || 'No QR code could be read.');
+  } finally {
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+}
   async function copyResult() {
     if (!scanResult) return;
 
@@ -571,13 +559,23 @@ function ScannerPage(props) {
             ))}
           </select>
 
-          <button type="button" className="primary-action" onClick={isScanning ? stopScanner : startScanner}>
-            {isScanning ? 'Stop' : 'Start'}
+          <button
+            type="button"
+            className="scanner-btn"
+            onClick={isScanning ? stopScanner : startScanner}
+          >
+            {isScanning ? 'Stop QR Scan' : 'Start QR Scan'}
           </button>
 
-          <label className="upload-action">
-            Upload
-            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileScan} />
+          <label className="scanner-btn">
+            Upload QR Image
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleFileScan}
+              hidden
+            />
           </label>
         </div>
 
@@ -656,6 +654,7 @@ function App() {
   const [farmerData, setFarmerData] = useState(null);
   const [farmerCount, setFarmerCount] = useState(null);
   const [totalBagsScanned, setTotalBagsScanned] = useState(null);
+  const [totalBagsSold, setTotalBagsSold] = useState(null);
   const [dealerDetails, setDealerDetails] = useState(dealerDetailsByLanguage.en);
   const [isEditingDealer, setIsEditingDealer] = useState(false);
   const [scanRecords, setScanRecords] = useState([]);
@@ -692,7 +691,8 @@ function App() {
       return;
     }
     try {
-      const response = await fetch(`${API_BASE_URL}/api/farmers/${aadharInput}`);
+      // Use the same endpoint as gov dashboard — returns calculated limit
+      const response = await fetch(`${API_BASE_URL}/api/farmer-records/${aadharInput}`);
       if (response.status === 404) {
         setFarmerData(null);
         alert(texts.farmerNotFound);
@@ -703,7 +703,23 @@ function App() {
         throw new Error(err.error || 'Error fetching farmer');
       }
       const payload = await response.json();
-      setFarmerData(payload.farmer);
+      const farmer = { ...payload.farmer, aadhar: payload.farmer.aadhar_id };
+
+      // Fetch purchased amount from transactions
+      let purchased = 0;
+      try {
+        const txRes = await fetch(`${API_BASE_URL}/api/farmer-transactions/${aadharInput}`);
+        if (txRes.ok) {
+          const txPayload = await txRes.json();
+          purchased = (txPayload.transactions || []).reduce(
+            (sum, tx) => sum + (tx.quantity_kg || 0), 0
+          );
+        }
+      } catch (e) {
+        console.warn('Could not load transactions:', e);
+      }
+
+      setFarmerData({ ...farmer, purchased });
     } catch (err) {
       console.error(err);
       alert(err.message);
@@ -798,6 +814,11 @@ function App() {
       .then(res => res.json())
       .then(data => setTotalBagsScanned(data.total ?? 0))
       .catch(() => setTotalBagsScanned(0));
+    fetch(`${API_BASE_URL}/api/scan-records/total-sold`)
+      .then(res => res.json())
+      .then(data => setTotalBagsSold(data.total ?? 0))
+      .catch(() => setTotalBagsSold(0));
+    loadScanRecords();
   }, []);
   useEffect(() => {
     if (currentPage === 'previous' || currentPage === 'history') loadScanRecords();
@@ -867,7 +888,7 @@ function App() {
                 <span className="stat-icon">🛒</span>
                 <div>
                   <p>{texts.totalSold}</p>
-                  <strong>{localizeDigits(348)}</strong>
+                  <strong>{localizeDigits(totalBagsSold ?? '...')}</strong>
                 </div>
               </div>
 
@@ -912,42 +933,42 @@ function App() {
                   <div className="details-grid">
                     <div className="detail-item">
                       <span className="label">{texts.name}</span>
-                      <span className="value">{farmerData.name}</span>
-                    </div>
-                    <div className="detail-item">
-                      <span className="label">{texts.age}</span>
-                      <span className="value">{farmerData.age}</span>
-                    </div>
-                    <div className="detail-item">
-                      <span className="label">{texts.gender}</span>
-                      <span className="value">{farmerData.gender}</span>
+                      <span className="value">{farmerData.name || '—'}</span>
                     </div>
                     <div className="detail-item">
                       <span className="label">{texts.aadhar}</span>
-                      <span className="value">{localizeDigits(farmerData.aadhar)}</span>
+                      <span className="value">{localizeDigits(farmerData.aadhar_id || farmerData.aadhar) || '—'}</span>
                     </div>
                     <div className="detail-item">
-                      <span className="label">{texts.phone}</span>
-                      <span className="value">{localizeDigits(farmerData.phone)}</span>
+                      <span className="label">Village</span>
+                      <span className="value">{farmerData.village || '—'}</span>
                     </div>
                     <div className="detail-item">
-                      <span className="label">{texts.address}</span>
-                      <span className="value">{farmerData.address}</span>
+                      <span className="label">District</span>
+                      <span className="value">{farmerData.district || '—'}</span>
+                    </div>
+                    <div className="detail-item">
+                      <span className="label">Phone</span>
+                      <span className="value">{farmerData.phone || 'Not set'}</span>
                     </div>
                     <div className="detail-item limit-info">
                       <span className="label">{texts.fertilizerLimit}</span>
-                      <span className="value">{localizeDigits(farmerData.limit)} kg</span>
+                      <span className="value">{localizeDigits(farmerData.limit ?? 0)} kg</span>
                     </div>
                     <div className="detail-item purchased-info">
                       <span className="label">{texts.alreadyPurchased}</span>
-                      <span className="value">{localizeDigits(farmerData.purchased)} kg</span>
+                      <span className="value">{localizeDigits(farmerData.purchased ?? 0)} kg</span>
                     </div>
                     <div className="detail-item available-info">
                       <span className="label">{texts.availableToBuy}</span>
-                      <span className="value">{localizeDigits(farmerData.limit - farmerData.purchased)} kg</span>
+                      <span className="value">
+                        {localizeDigits((farmerData.limit ?? 0) - (farmerData.purchased ?? 0))} kg
+                      </span>
                     </div>
                   </div>
-                  <button className="proceed-button" onClick={() => setCurrentPage('bagScan')}>{texts.proceedToScan}</button>
+                  <button className="proceed-button" onClick={() => setCurrentPage('bagScan')}>
+                    {texts.proceedToScan}
+                  </button>
                 </div>
               )}
             </section>
@@ -962,117 +983,117 @@ function App() {
                 <p className="subtitle">{texts.scanBatchSubtitle}</p>
               </div>
             </header>
-            <p>Bag Scanner Page Loaded</p>
+
             <NewBagScannerPage setCurrentPage={setCurrentPage} farmerData={farmerData} />
           </>
         )}
 
         {currentPage === 'history' && (
-  <>
-    <header className="top-bar">
-      <div>
-        <p className="page-label">{texts.pageLabel}</p>
-        <h2>Batches Scanned</h2>
-        <p className="subtitle">
-          All batches and bags scanned by dealer.
-        </p>
-      </div>
-    </header>
+          <>
+            <header className="top-bar">
+              <div>
+                <p className="page-label">{texts.pageLabel}</p>
+                <h2>Batches Scanned</h2>
+                <p className="subtitle">
+                  All batches and bags scanned by dealer.
+                </p>
+              </div>
+            </header>
 
-    <section className="records-section">
-      {recordsStatus.status === 'loading' && (
-        <p className="records-message">{recordsStatus.message}</p>
-      )}
+            <section className="records-section">
+              {recordsStatus.status === 'loading' && (
+                <p className="records-message">{recordsStatus.message}</p>
+              )}
 
-      {recordsStatus.status === 'error' && (
-        <p className="records-message error">{recordsStatus.message}</p>
-      )}
+              {recordsStatus.status === 'error' && (
+                <p className="records-message error">{recordsStatus.message}</p>
+              )}
 
-      {recordsStatus.status === 'success' &&
-        scanRecords.length === 0 && (
-          <p className="records-message">
-            No scanned records yet.
-          </p>
+              {recordsStatus.status === 'success' &&
+                scanRecords.length === 0 && (
+                  <p className="records-message">
+                    No scanned records yet.
+                  </p>
+                )}
+
+              {scanRecords.length > 0 &&
+                (() => {
+                  // Include both received and sold records
+                  const allRecords = scanRecords.filter(
+                    (r) => r.status === "received" || r.status === "sold"
+                  );
+
+                  const batchMap = {};
+
+                  allRecords.forEach((record) => {
+                    const key = record.batch_number || record.bag_id || record.id;
+
+                    if (!batchMap[key]) {
+                      batchMap[key] = {
+                        ...record,
+                        bagsScanned: record.number_of_bags || 1,
+                      };
+                    } else {
+                      batchMap[key].bagsScanned += (record.number_of_bags || 1);
+                    }
+                  });
+
+                  const batches = Object.values(batchMap).sort(
+                    (a, b) => new Date(b.scanned_at) - new Date(a.scanned_at)
+                  );
+
+                  return (
+                    <div className="records-table-wrap">
+                      <table className="records-table">
+                        <thead>
+                          <tr>
+                            <th>Scanned At</th>
+                            <th>Batch Number</th>
+                            <th>Product</th>
+                            <th>Manufacturer</th>
+                            <th>Bag Weight</th>
+                            <th>Bags Scanned</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+
+                        <tbody>
+                          {batches.map((record) => (
+                            <tr
+                              key={
+                                record.batch_number || record.id
+                              }
+                            >
+                              <td>
+                                {formatDateTime(
+                                  record.scanned_at
+                                )}
+                              </td>
+                              <td>
+                                {record.batch_number || "N/A"}
+                              </td>
+                              <td>
+                                {record.product_name || "N/A"}
+                              </td>
+                              <td>
+                                {record.manufacturer || "N/A"}
+                              </td>
+                              <td>
+                                {record.bag_weight || "N/A"}
+                              </td>
+                              <td>{record.bagsScanned}</td>
+                              <td>{record.status || "N/A"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+            </section>
+          </>
         )}
 
-      {scanRecords.length > 0 &&
-        (() => {
-          const receivedRecords = scanRecords.filter(
-            (r) => r.status === "received"
-          );
-
-          const batchMap = {};
-
-          receivedRecords.forEach((record) => {
-            const key =
-              record.batch_number ||
-              record.bag_id ||
-              record.id;
-
-            if (!batchMap[key]) {
-              batchMap[key] = {
-                ...record,
-                bagsScanned: 1,
-              };
-            } else {
-              batchMap[key].bagsScanned += 1;
-            }
-          });
-
-          const batches = Object.values(batchMap);
-
-          return (
-            <div className="records-table-wrap">
-              <table className="records-table">
-                <thead>
-                  <tr>
-                    <th>Scanned At</th>
-                    <th>Batch Number</th>
-                    <th>Product</th>
-                    <th>Manufacturer</th>
-                    <th>Bag Weight</th>
-                    <th>Bags Scanned</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {batches.map((record) => (
-                    <tr
-                      key={
-                        record.batch_number || record.id
-                      }
-                    >
-                      <td>
-                        {formatDateTime(
-                          record.scanned_at
-                        )}
-                      </td>
-                      <td>
-                        {record.batch_number || "N/A"}
-                      </td>
-                      <td>
-                        {record.product_name || "N/A"}
-                      </td>
-                      <td>
-                        {record.manufacturer || "N/A"}
-                      </td>
-                      <td>
-                        {record.bag_weight || "N/A"}
-                      </td>
-                      <td>{record.bagsScanned}</td>
-                      <td>{record.status || "N/A"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          );
-        })()}
-    </section>
-  </>
-)}
-       
 
         {currentPage === 'scan' && (
           <>

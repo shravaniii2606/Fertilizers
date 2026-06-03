@@ -14,12 +14,19 @@ const scanRecordRoutes = require('./routes/scanRecordRoutes');
 const bagRoutes = require('./routes/bagRoutes');
 const farmerTransactionRoutes = require('./routes/farmerTransactionRoutes');
 const aiAnalysisRoutes = require('./routes/aiAnalysisRoutes');
+const otpRoutes = require('./routes/otpRoutes');
+
 
 const app = express();
 const port = process.env.PORT || 5000;
 
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:3001'],
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'https://dealer-dashboard.vercel.app',
+    'https://gov-dashboard.vercel.app'
+  ],
   credentials: true,
 }));
 
@@ -37,6 +44,7 @@ app.use('/api/scan-records', scanRecordRoutes);
 app.use('/api/bags', bagRoutes);
 app.use('/api/farmer-transactions', farmerTransactionRoutes); // ← after express.json()
 app.use('/api/ai', aiAnalysisRoutes);
+app.use('/api/otp', otpRoutes);
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
