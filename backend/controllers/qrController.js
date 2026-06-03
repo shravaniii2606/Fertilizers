@@ -55,8 +55,43 @@ async function generateBagQRCodes(req, res) {
     return res.status(500).json({ error: error.message || 'Unable to generate QR codes.' });
   }
 }
+const { Jimp } = require('jimp');
+const jsQR = require('jsqr');
 
+async function decodeQRCode(req, res) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image file provided.' });
+    }
+
+    const image = await Jimp.fromBuffer(req.file.buffer);
+    const width = image.bitmap.width;
+    const height = image.bitmap.height;
+    const data = new Uint8ClampedArray(image.bitmap.data);
+
+    const code = jsQR(data, width, height, {
+      inversionAttempts: 'dontInvert',
+    });
+
+    if (!code) {
+      const code2 = jsQR(data, width, height, {
+        inversionAttempts: 'onlyInvert',
+      });
+      if (!code2) {
+        return res.status(404).json({ error: 'No QR code found in image.' });
+      }
+      return res.status(200).json({ decodedText: code2.data });
+    }
+
+    return res.status(200).json({ decodedText: code.data });
+  } catch (error) {
+    console.error('Decode QR failed:', error);
+    return res.status(500).json({ error: error.message || 'Failed to decode QR.' });
+  }
+}
 module.exports = {
   generateBagQRCodes,
+  decodeQRCode,
 };
+
 

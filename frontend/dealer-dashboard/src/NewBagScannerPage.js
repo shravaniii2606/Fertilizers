@@ -27,36 +27,80 @@ export default function NewBagScannerPage({ setCurrentPage, farmerData: initialF
   }, [otpCountdown]);
 
   const handleSendOtp = async () => {
-    setSendingOtp(true);
-    setOtpError(null);
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      setOtpSent(true);
-      setOtpCountdown(30);
-      alert('OTP sent successfully! (Use mock OTP: 1234)');
-    } catch (e) {
-      setOtpError('Failed to send OTP. Please try again.');
-    } finally {
-      setSendingOtp(false);
+  setSendingOtp(true);
+  setOtpError(null);
+
+  try {
+    const aadhar =
+      farmerData?.aadhar_id ||
+      farmerData?.aadhar;
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/otp/send`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ aadhar }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to send OTP');
     }
-  };
+
+    setOtpSent(true);
+    setOtpCountdown(30);
+
+    alert('OTP sent successfully!');
+  } catch (e) {
+    setOtpError(e.message || 'Failed to send OTP');
+  } finally {
+    setSendingOtp(false);
+  }
+};
 
   const handleVerifyAndPurchase = async () => {
-    if (otpInput !== '1234') {
-      setOtpError('Invalid OTP code. Please enter 1234.');
-      return;
+  setVerifyingOtp(true);
+  setOtpError(null);
+
+  try {
+    const aadhar =
+      farmerData?.aadhar_id ||
+      farmerData?.aadhar;
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/otp/verify`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          aadhar,
+          otp: otpInput,
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok || !data.verified) {
+      throw new Error(data.error || 'Invalid OTP');
     }
 
-    setVerifyingOtp(true);
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      await handlePurchase();
-    } catch (e) {
-      setOtpError(e.message || 'Verification and purchase failed.');
-    } finally {
-      setVerifyingOtp(false);
-    }
-  };
+    await handlePurchase();
+  } catch (e) {
+    setOtpError(
+      e.message || 'OTP verification failed'
+    );
+  } finally {
+    setVerifyingOtp(false);
+  }
+};
 
   const fetchBagById = async (bagId) => {
     const res = await fetch(`${API_BASE_URL}/api/bags/${bagId}`);
@@ -197,19 +241,14 @@ export default function NewBagScannerPage({ setCurrentPage, farmerData: initialF
 
   return (
     <div className="bag-scanner-page">
-      <header className="top-bar">
-        <div>
-          <p className="page-label">BAG SCAN</p>
-          <h2>Scan Bag QR Code</h2>
-        </div>
-      </header>
+      
 
-      <button className="start-scan-button" onClick={startScanner} disabled={scanning}>
-        Start QR Scan
-      </button>
-      <button className="upload-button" onClick={triggerFileInput} disabled={scanning}>
-        Upload QR Image
-      </button>
+      <button className="scanner-btn" onClick={startScanner} disabled={scanning}>
+  Start QR Scan
+</button>
+<button className="scanner-btn" onClick={triggerFileInput} disabled={scanning}>
+  Upload QR Image
+</button>
       <input
         type="file"
         accept="image/*"
@@ -218,35 +257,91 @@ export default function NewBagScannerPage({ setCurrentPage, farmerData: initialF
         onChange={handleFileUpload}
       />
       {scanning && (
-        <button className="stop-scan-button" onClick={stopScanner}>
-          Stop QR Scan
-        </button>
-      )}
+  <button className="scanner-btn" style={{ background: '#ef4444' }} onClick={stopScanner}>
+    Stop QR Scan
+  </button>
+)}
 
       <div id="qr-reader" className="qr-reader"></div>
 
       {loading && <p>Loading details...</p>}
       {error && <p className="error">{error}</p>}
 
-      {bagData && (
-        <section className="bag-details">
-          <h3>Bag Details</h3>
-          <p><strong>ID:</strong> {bagData.id || bagData.bagIds}</p>
-          <p><strong>Product:</strong> {bagData.product_name || bagData.product}</p>
-          <p><strong>Weight:</strong> {bagData.bag_weight || bagData.weight} kg</p>
-          <p><strong>Batch:</strong> {bagData.batch_number}</p>
-          {bagData.status && <p><strong>Status:</strong> {bagData.status}</p>}
-        </section>
-      )}
-      {farmerData && (
-        <section className="farmer-details">
-          <h3>Farmer Details</h3>
-          <p><strong>Name:</strong> {farmerData.name}</p>
-          <p><strong>Aadhar:</strong> {farmerData.aadhar}</p>
-          <p><strong>Phone:</strong> {farmerData.phone}</p>
-          <p><strong>Address:</strong> {farmerData.address}</p>
-        </section>
-      )}
+      {(bagData || farmerData) && (
+  <div style={{
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '20px',
+    marginTop: '24px',
+    width: '100%'
+  }}>
+    {bagData && (
+      <div style={{
+        background: '#ffffff',
+        border: '1px solid #dfe7f2',
+        borderRadius: '16px',
+        padding: '24px',
+        boxShadow: '0 4px 12px rgba(15,23,42,0.06)'
+      }}>
+        <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: '700',
+          color: '#4f46e5', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          📦 Bag Details
+        </h3>
+        {[
+          ['ID', bagData.id || bagData.bagIds],
+          ['Product', bagData.product_name || bagData.product],
+          ['Weight', `${bagData.bag_weight || bagData.weight} kg`],
+          ['Batch', bagData.batch_number],
+          ['Status', bagData.status],
+        ].map(([label, value]) => (
+          <div key={label} style={{
+            display: 'flex', justifyContent: 'space-between',
+            padding: '10px 0', borderBottom: '1px solid #f1f5f9'
+          }}>
+            <span style={{ color: '#64748b', fontSize: '13px', fontWeight: '600',
+              textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</span>
+            <span style={{ color: '#0f172a', fontWeight: '600', fontSize: '14px' }}>
+              {value || '—'}
+            </span>
+          </div>
+        ))}
+      </div>
+    )}
+
+    {farmerData && (
+      <div style={{
+        background: '#ffffff',
+        border: '1px solid #dfe7f2',
+        borderRadius: '16px',
+        padding: '24px',
+        boxShadow: '0 4px 12px rgba(15,23,42,0.06)'
+      }}>
+        <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: '700',
+          color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          👨‍🌾 Farmer Details
+        </h3>
+        {[
+          ['Name', farmerData.name],
+          ['Aadhar', farmerData.aadhar_id || farmerData.aadhar],
+          ['Village', farmerData.village],
+          ['District', farmerData.district],
+          ['Limit', farmerData.limit ? `${farmerData.limit} kg` : null],
+        ].map(([label, value]) => (
+          <div key={label} style={{
+            display: 'flex', justifyContent: 'space-between',
+            padding: '10px 0', borderBottom: '1px solid #f1f5f9'
+          }}>
+            <span style={{ color: '#64748b', fontSize: '13px', fontWeight: '600',
+              textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</span>
+            <span style={{ color: '#0f172a', fontWeight: '600', fontSize: '14px' }}>
+              {value || '—'}
+            </span>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+)}
       {bagData && farmerData && (
         <div style={{ marginTop: '24px', width: '100%' }}>
           {/* If bag already sold, show message */}
@@ -265,17 +360,17 @@ export default function NewBagScannerPage({ setCurrentPage, farmerData: initialF
                 <div className="otp-input-group">
                   <input
                     type="text"
-                    placeholder="Enter 4-Digit OTP"
+                    placeholder="Enter 6-Digit OTP"
                     value={otpInput}
                     onChange={(e) => {
                       setOtpInput(e.target.value.replace(/[^0-9]/g, ''));
                       setOtpError(null);
                     }}
-                    maxLength="4"
+                    maxLength="6"
                     disabled={verifyingOtp}
                     className="otp-input-field"
                   />
-                  <button className="verify-otp-button" onClick={handleVerifyAndPurchase} disabled={verifyingOtp || otpInput.length < 4}>
+                  <button className="verify-otp-button" onClick={handleVerifyAndPurchase} disabled={verifyingOtp || otpInput.length < 6}>
                     {verifyingOtp ? 'Verifying...' : 'Verify & Purchase'}
                   </button>
                 </div>

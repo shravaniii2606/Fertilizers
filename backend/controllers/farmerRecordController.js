@@ -1,11 +1,11 @@
 const { getSupabaseClient } = require('../supabase');
 
 const FERTILIZER_REQUIREMENTS = {
-  Wheat:     50,
-  Mustard:   40,
-  Paddy:     60,
-  Soybean:   35,
-  Maize:     55,
+  Wheat: 50,
+  Mustard: 40,
+  Paddy: 60,
+  Soybean: 35,
+  Maize: 55,
   Sunflower: 45,
 };
 
@@ -57,9 +57,9 @@ async function listAllFarmers(req, res) {
     // Fetch farmers + their land and crop data in parallel
     const [farmerRes, landRes, cropRes] = await Promise.all([
       supabase
-        .from('farmer_records')
-        .select('aadhar_id, name, village, district, created_at')
-        .order('created_at', { ascending: false }),
+  .from('farmer_records')
+  .select('aadhar_id, name, village, district, created_at, phone')
+  .order('created_at', { ascending: false }),
       supabase
         .from('land_records')
         .select('aadhar_id, land_area'),
@@ -72,8 +72,8 @@ async function listAllFarmers(req, res) {
 
     // Compute limit for each farmer from their land + crop data
     const farmers = farmerRes.data.map(farmer => {
-      const land  = (landRes.data  || []).filter(l => l.aadhar_id === farmer.aadhar_id);
-      const crops = (cropRes.data  || []).filter(c => c.aadhar_id === farmer.aadhar_id);
+      const land = (landRes.data || []).filter(l => l.aadhar_id === farmer.aadhar_id);
+      const crops = (cropRes.data || []).filter(c => c.aadhar_id === farmer.aadhar_id);
       return {
         ...farmer,
         limit: calculateLimit(land, crops),
@@ -102,7 +102,7 @@ async function getFarmerDetails(req, res) {
     const [farmerRes, landRes, cropRes, soilRes] = await Promise.all([
       supabase
         .from('farmer_records')
-        .select('aadhar_id, name, village, district, limit')
+        .select('aadhar_id, name, village, district, limit, phone')
         .eq('aadhar_id', aadhar)
         .single(),
       supabase
@@ -126,17 +126,17 @@ async function getFarmerDetails(req, res) {
       return res.status(500).json({ error: farmerRes.error.message });
     }
 
-    const land  = landRes.data  || [];
-const crops = cropRes.data  || [];
+    const land = landRes.data || [];
+    const crops = cropRes.data || [];
 
-const computedLimit = calculateLimit(land, crops);
+    const computedLimit = calculateLimit(land, crops);
 
-return res.status(200).json({
-  farmer:     { ...farmerRes.data, limit: computedLimit }, // overrides the DB hardcoded limit
-  land,
-  crops,
-  soilHealth: soilRes.data || [],
-});
+    return res.status(200).json({
+      farmer: { ...farmerRes.data, limit: computedLimit }, // overrides the DB hardcoded limit
+      land,
+      crops,
+      soilHealth: soilRes.data || [],
+    });
   } catch (error) {
     console.error('Get farmer details failed:', error);
     return res.status(500).json({ error: getErrorMessage(error) });
@@ -155,8 +155,38 @@ async function getAllTransactions(req, res) {
     return res.status(500).json({ error: error.message });
   }
 }
+async function updateFarmerPhone(req, res) {
+  try {
+    const { aadhar } = req.params;
+    const { phone } = req.body;
+
+    if (!aadhar) return res.status(400).json({ error: 'Aadhar is required.' });
+    if (!phone) return res.status(400).json({ error: 'Phone number is required.' });
+
+    // Basic Indian phone validation
+    const cleaned = phone.replace(/\D/g, '');
+    if (cleaned.length !== 10) {
+      return res.status(400).json({ error: 'Phone must be 10 digits.' });
+    }
+
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from('farmer_records')
+      .update({ phone: cleaned })
+      .eq('aadhar_id', aadhar)
+      .select('aadhar_id, name, phone')
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(200).json({ success: true, farmer: data });
+  } catch (error) {
+    return res.status(500).json({ error: getErrorMessage(error) });
+  }
+}
+
 module.exports = {
   getFarmerRecordMetrics,
   listAllFarmers,
   getFarmerDetails,
+  updateFarmerPhone,  // ← ADD THIS
 };

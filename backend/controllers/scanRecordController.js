@@ -103,8 +103,7 @@ async function getTotalBagsScanned(req, res) {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from(scanRecordsTable)
-      .select('number_of_bags')
-      .eq('status', 'received');
+      .select('number_of_bags');
 
     if (error) return res.status(500).json({ error: error.message });
 
@@ -116,8 +115,26 @@ async function getTotalBagsScanned(req, res) {
     return res.status(500).json({ error: details || 'Unknown server error' });
   }
 }
+async function getTotalBagsSold(req, res) {
+  try {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from(scanRecordsTable)
+      .select('id')
+      .eq('status', 'sold');
+
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(200).json({ total: data.length });
+  } catch (error) {
+    const causeMessage = error.cause?.message || error.cause?.code || null;
+    const details = [error.message, causeMessage].filter(Boolean).join(' | ');
+    return res.status(500).json({ error: details || 'Unknown server error' });
+  }
+}
+
 module.exports = {
   createScanRecord,
   listScanRecords,
   getTotalBagsScanned,
+  getTotalBagsSold,  // ← ADD THIS
 };

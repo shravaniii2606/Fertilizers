@@ -1385,6 +1385,7 @@ function AlertsPage() {
 
       <div className="metric-grid">
         <MetricCard icon="warning" label="Total Alerts" value={alerts.length} accent="orange" />
+
       </div>
 
       {alerts.length > 0 ? (
@@ -1483,6 +1484,7 @@ function FarmerDetailPanel({ aadharId, onBack }) {
               <div><span>Name</span><strong>{farmer.name || '—'}</strong></div>
               <div><span>Village</span><strong>{farmer.village || '—'}</strong></div>
               <div><span>District</span><strong>{farmer.district || '—'}</strong></div>
+              <div><span>Phone</span><strong>{farmer.phone || '—'}</strong></div>
             </div>
             {(() => {
               const totalUsed = transactions.reduce((sum, tx) => sum + (tx.quantity_kg || 0), 0);
@@ -1724,15 +1726,16 @@ function FarmerRecordsPage() {
         <MetricCard icon="user" label="Total Farmers" value={farmerMetrics.totalFarmers.toLocaleString('en-IN')} accent="teal" />
       </div>
       <DataTable
-        columns={['Aadhar ID', 'Name', 'Village', 'District', 'Limit (kg)', 'Action']}
+        columns={['Aadhar ID', 'Name', 'Village', 'District', 'Phone', 'Limit (kg)', 'Action']}
         rows={filteredFarmers.map((f) => [
-          f.aadhar_id,
-          f.name,
-          f.village || '—',
-          f.district || '—',
-          f.limit != null ? String(f.limit) : '—',
-          'View Details',
-        ])}
+  f.aadhar_id,
+  f.name,
+  f.village || '—',
+  f.district || '—',
+  f.phone || '—',
+  f.limit != null ? String(f.limit) : '—',
+  'View Details',
+])}
         footer={`Showing ${filteredFarmers.length} of ${farmers.length} records`}
         onAction={(row) => setSelectedAadhar(row[0])}
       />
@@ -1975,72 +1978,61 @@ function ScannerPage() {
     });
   }
   async function handleFileScan(event) {
-    const [file] = event.target.files || [];
-    if (!file) return;
+  const [file] = event.target.files || [];
+  if (!file) return;
 
-    setScanError('');
-    setScanStatus('Reading image');
+  setScanError('');
+  setScanStatus('Reading image');
 
+  try {
+    const scanner = await getScanner();
+    if (scanner.isScanning) await stopScanner();
+
+    let decodedText = null;
+
+    // PRIMARY: Server-side decode (100% reliable)
     try {
-      const scanner = await getScanner();
-
-      if (scanner.isScanning) {
-        await stopScanner();
+      const formData = new FormData();
+      formData.append('image', file);
+      const response = await fetch(`${API_BASE_URL}/api/qrcodes/decode`, {
+        method: 'POST',
+        body: formData,
+      });
+      const result = await response.json();
+      if (response.ok && result.decodedText) {
+        decodedText = result.decodedText;
       }
+    } catch (e) {
+      console.warn('Server decode failed, trying browser:', e);
+    }
 
-      let decodedText = null;
-      let scanErrorOccurred = null;
-
-      // 1. Try scanning original file
+    // FALLBACK: Browser-side html5-qrcode
+    if (!decodedText) {
       try {
         decodedText = await scanner.scanFile(file, true);
-      } catch (err1) {
-        scanErrorOccurred = err1;
-      }
+      } catch (e) {}
+    }
 
-      // 2. Try scanning at 800px resize
-      if (!decodedText) {
+    // FALLBACK: Resized versions
+    if (!decodedText) {
+      for (const size of [1200, 800, 400]) {
         try {
-          const resized800 = await resizeImage(file, 800);
-          decodedText = await scanner.scanFile(resized800, true);
-        } catch (err2) {
-          scanErrorOccurred = err2;
-        }
-      }
-
-      // 3. Try scanning at 400px resize
-      if (!decodedText) {
-        try {
-          const resized400 = await resizeImage(file, 400);
-          decodedText = await scanner.scanFile(resized400, true);
-        } catch (err3) {
-          scanErrorOccurred = err3;
-        }
-      }
-
-      // 4. Try scanning with native BarcodeDetector if supported
-      if (!decodedText && window.BarcodeDetector && window.createImageBitmap) {
-        try {
-          decodedText = await scanFileWithNativeDetector(file);
-        } catch (err4) {
-          scanErrorOccurred = err4;
-        }
-      }
-
-      if (!decodedText) {
-        throw scanErrorOccurred || new Error('No QR code could be read from this image.');
-      }
-
-      await handleScanSuccess(decodedText);
-    } catch (error) {
-      setScanStatus('No QR found');
-      setScanError(error?.message || 'No QR code could be read from this image.');
-    } finally {
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
+          const resized = await resizeImage(file, size);
+          decodedText = await scanner.scanFile(resized, true);
+          if (decodedText) break;
+        } catch (e) {}
       }
     }
+
+    if (!decodedText) throw new Error('No QR code could be read from this image.');
+    await handleScanSuccess(decodedText);
+  } catch (error) {
+    setScanStatus('No QR found');
+    setScanError(error?.message || 'No QR code could be read.');
+  } finally {
+    if (fileInputRef.current) fileInputRef.current.value = '';
   }
+}
   async function copyResult() {
     if (!scanResult) return;
 
