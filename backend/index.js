@@ -24,6 +24,7 @@ app.use(cors({
   origin: [
     'http://localhost:3000',
     'http://localhost:3001',
+    'http://localhost:3002',
     'https://dealer-dashboard.vercel.app',
     'https://gov-dashboard.vercel.app'
   ],
