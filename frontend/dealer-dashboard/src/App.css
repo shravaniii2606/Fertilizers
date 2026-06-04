@@ -1251,3 +1251,159 @@ label.scanner-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 12px 24px rgba(79, 70, 229, 0.35);
 }
+
+/* ── DEALER MOBILE FIXES ── */
+@media (max-width: 768px) {
+  /* Main layout - hide sidebar, full width */
+  .dealer-dashboard {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    display: none;
+  }
+
+  .main-panel {
+    padding: 16px;
+  }
+
+  /* Top bar */
+  .top-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 16px;
+    background: #ffffff;
+    border-radius: 16px;
+    box-shadow: 0 4px 12px rgba(15,23,42,0.06);
+    margin-bottom: 16px;
+  }
+
+  .top-bar h2 {
+    font-size: 1.4rem;
+  }
+
+  .header-card {
+    width: 100%;
+    min-width: unset;
+  }
+
+  /* Stats */
+  .stats-row {
+    grid-template-columns: 1fr;
+    padding: 16px;
+  }
+
+  .section {
+    padding: 16px 0 0;
+  }
+
+  /* Farmer details grid */
+  .details-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Search */
+  .search-card {
+    padding: 20px;
+  }
+
+  .search-card h3 {
+    font-size: 18px;
+  }
+
+  /* Settings */
+  .settings-card {
+    padding: 20px;
+  }
+
+  .settings-tabs {
+    flex-direction: column;
+  }
+
+  .settings-tab {
+    width: 100%;
+    text-align: center;
+  }
+
+  /* Language buttons */
+  .language-options {
+    flex-direction: column;
+  }
+
+  .language-button {
+    width: 100%;
+    text-align: center;
+  }
+
+  /* Scanner */
+  .scanner-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .scanner-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .scanner-reader {
+    min-height: 280px;
+  }
+
+  /* Scanner buttons */
+  .scanner-btn,
+  button.scanner-btn,
+  label.scanner-btn {
+    width: 100%;
+    min-width: unset;
+  }
+
+  /* Farmer details card */
+  .farmer-details-card {
+    padding: 20px;
+  }
+
+  .farmer-details-card h3 {
+    font-size: 18px;
+  }
+
+  .proceed-button {
+    font-size: 15px;
+    padding: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .main-panel {
+    padding: 12px;
+  }
+
+  .top-bar h2 {
+    font-size: 1.2rem;
+  }
+
+  .stat-card strong {
+    font-size: 1.3rem;
+  }
+
+  .search-input-group {
+    flex-direction: column;
+  }
+
+  .search-button {
+    width: 100%;
+  }
+
+  .form-actions {
+    flex-direction: column;
+  }
+
+  .save-button,
+  .cancel-button,
+  .edit-button {
+    width: 100%;
+    text-align: center;
+  }
+
+  .brand h1 {
+    font-size: 16px;
+  }
+}
