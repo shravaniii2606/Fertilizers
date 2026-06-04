@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import mockFarmerRecords from './mockFarmerRecords';
 
-const API_BASE_URL = process.env.https://fertilizers-oz5a.onrender.com/;
+const API_BASE_URL = "https://fertilizers-oz5a.onrender.com";
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
