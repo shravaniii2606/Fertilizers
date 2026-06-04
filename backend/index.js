@@ -22,12 +22,10 @@ const port = process.env.PORT || 5000;
 
 app.use(cors({
   origin: [
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://localhost:3002',
-    'https://dealer-dashboard.vercel.app',
-    'https://gov-dashboard.vercel.app'
-  ],
+    "https://v0-dealer-dashboard-deployment.vercel.app",
+    "http://localhost:3000"
+  ]
+}));
   credentials: true,
 }));
 
