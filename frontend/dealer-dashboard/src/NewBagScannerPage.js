@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+const API_BASE_URL = process.env.https://fertilizers-oz5a.onrender.com/;
 
 export default function NewBagScannerPage({ setCurrentPage, farmerData: initialFarmerData }) {
   const scannerRef = useRef(null);
