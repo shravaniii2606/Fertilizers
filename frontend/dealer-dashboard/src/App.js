@@ -3,7 +3,7 @@ import NewBagScannerPage from './NewBagScannerPage';
 import { useEffect, useRef, useState } from 'react';
 import './App.css';
 
-const API_URL = "https://fertilizers-oz5a.onrender.com";
+const API_BASE_URL = "https://fertilizers-oz5a.onrender.com";
 
 function parseDecodedPayload(decodedText) {
   try {
