@@ -23,13 +23,11 @@ const port = process.env.PORT || 5000;
 app.use(cors({
   origin: [
     "https://v0-dealer-dashboard-deployment.vercel.app",
-    "https://fertilizers-k584.vercel.app/",
+    "https://fertilizers-k584.vercel.app",
     "http://localhost:3000"
-  ]
+  ],
+  credentials: true
 }));
-  credentials: true,
-}));
-
 app.use(express.json()); // ← must be before all routes
 
 app.get('/', (req, res) => {
