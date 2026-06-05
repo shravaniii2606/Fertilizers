@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import mockFarmerRecords from './mockFarmerRecords';
 
-const API_BASE_URL = "https://fertilizers-oz5a.onrender.com";
+const API_BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
@@ -19,7 +19,7 @@ const statCards = [
     id: 'distribution',
     label: 'Total Distribution',
     value: '...',
-    unit: 'Bags',
+    unit: 'Batches',
     icon: 'bag',
     accent: 'green',
   },
@@ -76,7 +76,7 @@ const detailContent = {
   },
   distribution: {
     title: 'Total Distribution',
-    body: 'This section highlights overall fertilizer movement in bags across the monitored reporting period.',
+    body: 'This section highlights overall fertilizer movement in batches across the monitored reporting period.',
   },
   dealers: {
     title: 'Registered Dealers',
@@ -849,24 +849,6 @@ function AddPage() {
         </section>
       )}
 
-      {generatedBagIds.length > 0 && (
-        <section className="generated-panel">
-          <div className="generated-panel__header">
-            <h3>Generated Bag IDs</h3>
-            <p>{generatedBagIds.length} bag IDs created for batch {batchForm.batchNumber || 'BATCH'}.</p>
-          </div>
-          <div className="generated-bag-grid">
-            {generatedBagIds.map((bagId) => (
-              <article key={bagId} className="generated-bag-card">
-                <strong>{bagId}</strong>
-                <span>{batchForm.productName || 'Product name pending'}</span>
-                <small>{batchForm.bagWeight || 'Weight not set'}</small>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
-
       {generatedQRCodes.length > 0 && (
         <section className="generated-panel qr-panel">
           <div className="generated-panel__header">
@@ -878,7 +860,6 @@ function AddPage() {
               <article key={qrCode.bagId} className="generated-bag-card qr-card">
                 <img src={qrCode.qrCodeDataUrl} alt={`QR for ${qrCode.bagId}`} className="qr-image" />
                 <strong>{qrCode.bagId}</strong>
-                <small>Status: {qrCode.status || 'not scanned'}</small>
                 <a href={qrCode.qrCodeDataUrl} download={`${qrCode.bagId}.png`} className="table-action qr-download">
                   Download QR
                 </a>
@@ -915,6 +896,20 @@ function formatDate(value) {
     month: 'short',
     year: 'numeric',
   }).format(date);
+}
+
+function getBatchStatusTotals(batch) {
+  const totals = { sold: 0, sent: 0, received: 0 };
+  const codes = Array.isArray(batch?.qr_codes) ? batch.qr_codes : [];
+
+  codes.forEach((qrCode) => {
+    const status = String(qrCode?.status || '').trim().toLowerCase();
+    if (status === 'sold') totals.sold += 1;
+    if (status === 'sent' || status === 'received' || status === 'sold') totals.sent += 1;
+    if (status === 'received') totals.received += 1;
+  });
+
+  return totals;
 }
 
 async function readJsonResponse(response) {
@@ -1034,6 +1029,31 @@ function PreviousPage() {
               <div><span>Created On</span><strong>{formatDate(selectedBatch.created_at)}</strong></div>
             </div>
 
+            <div className="batch-subsection">
+              <h4>QR Status Summary</h4>
+              <div className="status-totals-grid">
+                {(() => {
+                  const { sold, sent, received } = getBatchStatusTotals(selectedBatch);
+                  return (
+                    <>
+                      <article className="status-total-card">
+                        <span>Sold</span>
+                        <strong>{sold}</strong>
+                      </article>
+                      <article className="status-total-card">
+                        <span>Sent</span>
+                        <strong>{sent}</strong>
+                      </article>
+                      <article className="status-total-card">
+                        <span>Received</span>
+                        <strong>{received}</strong>
+                      </article>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+
             {selectedBatch.batch_qr_code && (
               <div className="batch-subsection">
                 <h4>Batch QR Code</h4>
@@ -1053,16 +1073,11 @@ function PreviousPage() {
             <div className="batch-subsection">
               <h4>Bag IDs</h4>
               <div className="detail-chip-grid">
-                {(selectedBatch.bag_ids || []).map((bagId) => {
-                  const qrStatus = selectedBatch.qr_codes?.find((qrCode) => qrCode?.bagId === bagId)?.status;
-
-                  return (
-                    <span key={bagId} className="detail-chip">
-                      {bagId}
-                      <small>{qrStatus || 'not scanned'}</small>
-                    </span>
-                  );
-                })}
+                {(selectedBatch.bag_ids || []).map((bagId) => (
+                  <span key={bagId} className="detail-chip">
+                    {bagId}
+                  </span>
+                ))}
               </div>
             </div>
 
@@ -1074,7 +1089,6 @@ function PreviousPage() {
                     <article key={qrCode.bagId} className="generated-bag-card qr-card">
                       <img src={qrCode.qrCodeDataUrl} alt={`QR for ${qrCode.bagId}`} className="qr-image" />
                       <strong>{qrCode.bagId}</strong>
-                      <small>Status: {qrCode.status || 'not scanned'}</small>
                       <a href={qrCode.qrCodeDataUrl} download={`${qrCode.bagId}.png`} className="table-action qr-download">
                         Download QR
                       </a>
@@ -2135,9 +2149,19 @@ function DataTable({ columns, rows, footer, onAction }) {
                 const isStatus = columns[index] === 'Status';
                 const isAction = columns[index] === 'Action';
 
+                const statusClass = isStatus
+                  ? String(cell).trim().toLowerCase() === 'received'
+                    ? 'is-received'
+                    : String(cell).trim().toLowerCase() === 'sold'
+                      ? 'is-sold'
+                      : String(cell).trim().toLowerCase() === 'sent'
+                        ? 'is-sent'
+                        : 'is-pending'
+                  : '';
+
                 return (
                   <td key={`${cell}-${index}`}>
-                    {isStatus && <span className={`status-pill ${cell === 'Active' || cell === 'Verified' || cell === 'Resolved' ? 'is-active' : 'is-warning'}`}>{cell}</span>}
+                    {isStatus && <span className={`status-pill ${statusClass}`}>{cell}</span>}
                     {isAction && (
                       <button
                         type="button"

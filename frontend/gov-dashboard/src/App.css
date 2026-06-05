@@ -621,16 +621,18 @@
 
 .table-panel table {
   width: 100%;
-  min-width: 920px;
+  min-width: 0;
   border-collapse: collapse;
 }
 
 .table-panel th,
 .table-panel td {
-  padding: 16px 18px;
+  padding: 14px 16px;
   border-bottom: 1px solid #e6edf5;
   text-align: left;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
+  vertical-align: middle;
 }
 
 .table-panel th {
@@ -647,21 +649,41 @@
   border-radius: 8px;
   padding: 7px 10px;
   font-size: 0.86rem;
+  letter-spacing: 0.01em;
 }
 
-.status-pill.is-active {
-  background: #def7e9;
-  color: #137241;
+.status-pill.is-received {
+  background: #dcfce7;
+  color: #166534;
 }
 
-.status-pill.is-warning {
-  background: #fff0df;
-  color: #b45309;
+.status-pill.is-sold {
+  background: #dbeafe;
+  color: #1e3a8a;
+}
+
+.status-pill.is-sent {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.status-pill.is-pending {
+  background: #f8fafc;
+  color: #475569;
+}
+
+
+.detail-chip--status .status-pill {
+  min-width: auto;
+  padding: 4px 10px;
+  font-size: 0.8rem;
 }
 
 .table-action {
-  padding: 9px 16px;
+  padding: 9px 14px;
+  min-width: 110px;
 }
+
 
 .farmer-detail-card {
   border: 1px solid #dfe7f2;
@@ -1175,6 +1197,33 @@
   color: #1e3a8a;
   font-weight: 700;
   font-size: 0.9rem;
+}
+
+.status-totals-grid {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.status-total-card {
+  border: 1px solid #e6edf5;
+  background: #f8fbff;
+  border-radius: 14px;
+  padding: 16px;
+  text-align: center;
+}
+
+.status-total-card span {
+  display: block;
+  color: #64748b;
+  font-size: 0.88rem;
+  margin-bottom: 6px;
+}
+
+.status-total-card strong {
+  color: #0f172a;
+  font-size: 1.35rem;
 }
 
 .detail-chip small {
