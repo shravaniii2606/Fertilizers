@@ -20,13 +20,27 @@ const otpRoutes = require('./routes/otpRoutes');
 const app = express();
 const port = process.env.PORT || 5000;
 
+const allowedOrigins = [
+  "https://v0-dealer-dashboard-deployment.vercel.app",
+  "https://fertilizers-k584.vercel.app",
+  "https://fertilizers-rho.vercel.app",
+  "https://fertilizers-x7gz.vercel.app",
+];
+
 app.use(cors({
-  origin: [
-    "https://v0-dealer-dashboard-deployment.vercel.app",
-    "https://fertilizers-k584.vercel.app",
-    "http://localhost:3000"
-  ],
-  credentials: true
+  origin: (origin, callback) => {
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+    if (allowedOrigins.includes(origin) || isLocalhost) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`Origin ${origin} not allowed by CORS`));
+  },
+  credentials: true,
 }));
 app.use(express.json()); // ← must be before all routes
 
