@@ -1195,8 +1195,6 @@ function App() {
                           <th>Bag ID: </th>
                           <th>Batch Number: </th>
                           <th>Product: </th>
-                          <th>Bags: </th>
-                          <th>Manufacturer: </th>
                           <th>Weight: </th>
                           <th>Action: </th>
                         </tr>
@@ -1208,8 +1206,6 @@ function App() {
                             <td data-label="Bag ID"><span className="record-chip">{record.bag_id || 'N/A'}</span></td>
                             <td data-label="Batch Number">{record.batch_number || 'N/A'}</td>
                             <td data-label="Product">{record.product_name || 'N/A'}</td>
-                            <td data-label="Bags">{record.number_of_bags || 'N/A'}</td>
-                            <td data-label="Manufacturer">{record.manufacturer || 'N/A'}</td>
                             <td data-label="Weight">{record.bag_weight || 'N/A'}</td>
                             <td data-label="Action">
                               {record.farmer_aadhar_id ? (
