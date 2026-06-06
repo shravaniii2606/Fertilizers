@@ -101,9 +101,15 @@ async function listScanRecords(req, res) {
 async function getTotalBagsScanned(req, res) {
   try {
     const supabase = getSupabaseClient();
-    const { data, error } = await supabase
-      .from(scanRecordsTable)
-      .select('number_of_bags');
+    // Allow optional filtering by dealer_id and status (defaults to 'received')
+    const dealerId = req.query.dealer_id || null;
+    const statusFilter = req.query.status || 'received';
+
+    let query = supabase.from(scanRecordsTable).select('number_of_bags');
+    if (dealerId) query = query.eq('dealer_id', dealerId);
+    if (statusFilter) query = query.eq('status', statusFilter);
+
+    const { data, error } = await query;
 
     if (error) return res.status(500).json({ error: error.message });
 
@@ -118,10 +124,10 @@ async function getTotalBagsScanned(req, res) {
 async function getTotalBagsSold(req, res) {
   try {
     const supabase = getSupabaseClient();
-    const { data, error } = await supabase
-      .from(scanRecordsTable)
-      .select('id')
-      .eq('status', 'sold');
+    const dealerId = req.query.dealer_id || null;
+    let query = supabase.from(scanRecordsTable).select('id').eq('status', 'sold');
+    if (dealerId) query = query.eq('dealer_id', dealerId);
+    const { data, error } = await query;
 
     if (error) return res.status(500).json({ error: error.message });
     return res.status(200).json({ total: data.length });
