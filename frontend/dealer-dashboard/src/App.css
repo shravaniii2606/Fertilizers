@@ -12,18 +12,29 @@
   max-width: 1600px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: 1fr;
   background: #f3f7ff;
   color: #0f172a;
 }
 
 .sidebar {
+  position: fixed;
+  inset: 0 auto auto 0;
+  width: min(280px, 80vw);
+  height: 100vh;
+  transform: translateX(-100%);
+  transition: transform 0.28s ease;
+  z-index: 40;
   background: linear-gradient(180deg, #102145 0%, #162d5b 100%);
   color: #eef2ff;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
   padding: 24px 22px 32px;
+}
+
+.sidebar.mobile-open {
+  transform: translateX(0);
 }
 
 .brand {
@@ -86,10 +97,11 @@
 }
 
 .mobile-nav-toggle {
-  display: none;
+  display: inline-flex;
+  flex-direction: column;
   position: absolute;
   top: 18px;
-  left: 18px;
+  left: 8px;
   width: 44px;
   height: 44px;
   border: none;
@@ -105,12 +117,12 @@
 
 .mobile-nav-toggle span {
   display: block;
-  width: 22px;
-  height: 2px;
+  width: 34px;
+  height: 8px;
   background: #102145;
-  border-radius: 2px;
-  margin: 4px 0;
-  transition: transform 0.2s ease, opacity 0.2s ease;
+  border-radius: 999px;
+  margin: 6px 0;
+  transition: transform 0.22s cubic-bezier(.2,.9,.3,1), opacity 0.18s ease;
 }
 
 .mobile-nav-toggle:focus-visible {
@@ -132,6 +144,13 @@
 
 .mobile-nav-overlay {
   display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 35;
 }
 
 .top-bar {
@@ -387,8 +406,26 @@
 
 @media (max-width: 1100px) {
   .dealer-dashboard {
-    grid-template-columns: 240px minmax(0, 1fr);
+    grid-template-columns: 1fr;
     background: #f7f9fc;
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto auto 0;
+    width: min(280px, 80vw);
+    height: 100vh;
+    transform: translateX(-100%);
+    transition: transform 0.28s ease;
+    z-index: 40;
+    border-radius: 0 18px 18px 0;
+    box-shadow: 6px 0 35px rgba(15, 23, 42, 0.18);
+    display: flex;
+    background: linear-gradient(180deg, #102145 0%, #162d5b 100%);
+  }
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
   }
 
   .sidebar {
@@ -399,6 +436,26 @@
     padding: 24px 24px 32px;
     display: flex;
     flex-direction: column;
+  }
+
+  .mobile-nav-toggle {
+    display: inline-flex;
+  }
+
+  .mobile-nav-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 35;
+  }
+
+  .mobile-nav-overlay.is-open {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .top-bar {
@@ -425,50 +482,8 @@
 }
 
 @media (max-width: 992px) {
-  .dealer-dashboard {
-    grid-template-columns: 1fr;
-  }
-
-  .sidebar {
-    position: fixed;
-    inset: 0 auto auto 0;
-    width: min(280px, 80vw);
-    height: 100vh;
-    transform: translateX(-100%);
-    transition: transform 0.28s ease;
-    z-index: 40;
-    border-radius: 0 18px 18px 0;
-    box-shadow: 6px 0 35px rgba(15, 23, 42, 0.18);
-    display: flex;
-    background: linear-gradient(180deg, #102145 0%, #162d5b 100%);
-  }
-
-  .sidebar.mobile-open {
-    transform: translateX(0);
-  }
-
   .main-panel {
     padding: 22px 18px;
-  }
-
-  .mobile-nav-toggle {
-    display: inline-flex;
-  }
-
-  .mobile-nav-overlay {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background: rgba(15, 23, 42, 0.45);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s ease;
-    z-index: 35;
-  }
-
-  .mobile-nav-overlay.is-open {
-    opacity: 1;
-    pointer-events: auto;
   }
 
   .top-bar {
@@ -1352,12 +1367,13 @@
     padding: 12px 16px;
     border-bottom: 1px solid #edf2f7;
     overflow-wrap: anywhere;
+    min-width: 0;
   }
 
   .records-table td::before {
     content: attr(data-label);
     color: #64748b;
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     font-weight: 800;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -1365,6 +1381,24 @@
 
   .records-table td:last-child {
     border-bottom: 0;
+  }
+
+  .records-table tbody tr {
+    margin-bottom: 14px;
+  }
+
+  .records-table td > .record-chip {
+    width: fit-content;
+    max-width: 100%;
+  }
+
+  .records-table td[data-label="Action"] {
+    padding-bottom: 16px;
+  }
+
+  .records-table td[data-label="Action"] button {
+    width: 100%;
+    justify-self: stretch;
   }
 
   .record-chip {
