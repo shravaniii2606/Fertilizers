@@ -659,6 +659,7 @@ function App() {
   const [dealerDetails, setDealerDetails] = useState(dealerDetailsByLanguage.en);
   const [isEditingDealer, setIsEditingDealer] = useState(false);
   const [scanRecords, setScanRecords] = useState([]);
+  const [batchTotalsByNumber, setBatchTotalsByNumber] = useState({});
   const [saleHistory, setSaleHistory] = useState([]);
   const [saleHistoryStatus, setSaleHistoryStatus] = useState({ status: 'idle', message: '' });
   const [recordsStatus, setRecordsStatus] = useState({
@@ -751,14 +752,31 @@ function App() {
   const loadScanRecords = async () => {
     try {
       setRecordsStatus({ status: 'loading', message: 'Loading previous scan records...' });
-      const response = await fetch(`${API_BASE_URL}/api/scan-records`);
-      const payload = await readJsonResponse(response);
 
-      if (!response.ok) {
-        throw new Error(payload.error || 'Unable to load previous scan records.');
+      const [scanResponse, batchResponse] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/scan-records`),
+        fetch(`${API_BASE_URL}/api/batches`),
+      ]);
+      const scanPayload = await readJsonResponse(scanResponse);
+      const batchPayload = await readJsonResponse(batchResponse);
+
+      if (!scanResponse.ok) {
+        throw new Error(scanPayload.error || 'Unable to load previous scan records.');
       }
 
-      const records = payload.scanRecords || [];
+      if (!batchResponse.ok) {
+        throw new Error(batchPayload.error || 'Unable to load batch totals.');
+      }
+
+      const records = scanPayload.scanRecords || [];
+      const batchTotals = (batchPayload.batches || []).reduce((map, batch) => {
+        if (batch && batch.batch_number) {
+          map[batch.batch_number] = Number(batch.number_of_bags) || 0;
+        }
+        return map;
+      }, {});
+
+      setBatchTotalsByNumber(batchTotals);
       setScanRecords(records);
       setRecordsStatus({
         status: 'success',
@@ -1050,14 +1068,20 @@ function App() {
 
                   allRecords.forEach((record) => {
                     const key = record.batch_number || record.bag_id || record.id;
+                    const batchTotal = Number(record.number_of_bags) || 0;
+                    const actualTotalBags = record.batch_number && batchTotalsByNumber[record.batch_number] != null
+                      ? batchTotalsByNumber[record.batch_number]
+                      : batchTotal || 1;
 
                     if (!batchMap[key]) {
                       batchMap[key] = {
                         ...record,
-                        bagsScanned: record.number_of_bags || 1,
+                        bagsScanned: batchTotal || 1,
+                        totalBags: actualTotalBags,
                       };
                     } else {
-                      batchMap[key].bagsScanned += (record.number_of_bags || 1);
+                      batchMap[key].bagsScanned += batchTotal || 1;
+                      batchMap[key].totalBags = Math.max(batchMap[key].totalBags, actualTotalBags);
                     }
                   });
 
@@ -1073,10 +1097,9 @@ function App() {
                             <th>Scanned At</th>
                             <th>Batch Number</th>
                             <th>Product</th>
-                            <th>Manufacturer</th>
                             <th>Bag Weight</th>
                             <th>Bags Scanned</th>
-                            <th>Status</th>
+                            <th>Total Bags</th>
                           </tr>
                         </thead>
 
@@ -1098,14 +1121,11 @@ function App() {
                               <td data-label="Product">
                                 {record.product_name || "N/A"}
                               </td>
-                              <td data-label="Manufacturer">
-                                {record.manufacturer || "N/A"}
-                              </td>
                               <td data-label="Bag Weight">
                                 {record.bag_weight || "N/A"}
                               </td>
                               <td data-label="Bags Scanned">{record.bagsScanned}</td>
-                              <td data-label="Status">{record.status || "N/A"}</td>
+                              <td data-label="Total Bags">{record.totalBags}</td>
                             </tr>
                           ))}
                         </tbody>
