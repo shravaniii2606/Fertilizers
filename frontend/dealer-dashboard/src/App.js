@@ -816,16 +816,20 @@ function App() {
       .then(data => setFarmerCount(data.count ?? 0))
       .catch(() => setFarmerCount(0));
 
-    fetch(`${API_BASE_URL}/api/scan-records/total-bags`)
+    const dealerQuery = dealerDetails?.id ? `?dealer_id=${encodeURIComponent(dealerDetails.id)}` : '';
+
+    fetch(`${API_BASE_URL}/api/scan-records/total-bags${dealerQuery}`)
       .then(res => res.json())
       .then(data => setTotalBagsScanned(data.total ?? 0))
       .catch(() => setTotalBagsScanned(0));
-    fetch(`${API_BASE_URL}/api/scan-records/total-sold`)
+
+    fetch(`${API_BASE_URL}/api/scan-records/total-sold${dealerQuery}`)
       .then(res => res.json())
       .then(data => setTotalBagsSold(data.total ?? 0))
       .catch(() => setTotalBagsSold(0));
+
     loadScanRecords();
-  }, []);
+  }, [dealerDetails?.id]);
   useEffect(() => {
     if (currentPage === 'previous' || currentPage === 'history') loadScanRecords();
   }, [currentPage]);
