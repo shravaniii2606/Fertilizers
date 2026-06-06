@@ -1,7 +1,18 @@
+:root {
+  box-sizing: border-box;
+}
+
+*, *::before, *::after {
+  box-sizing: inherit;
+}
+
 .dealer-dashboard {
   min-height: 100vh;
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 280px minmax(0, 1fr);
   background: #f3f7ff;
   color: #0f172a;
 }
@@ -152,7 +163,7 @@
 
 .stats-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
   background: #ffffff;
   border: 1px solid #dfe7f2;
@@ -162,6 +173,7 @@
 }
 
 .stat-card {
+  position: relative;
   background: #ffffff;
   border: 1px solid #dfe7f2;
   border-radius: 14px;
@@ -325,36 +337,160 @@
 
 @media (max-width: 1100px) {
   .dealer-dashboard {
-  grid-template-columns: 224px minmax(0, 1fr);
-  background: #f7f9fc;
-}
+    grid-template-columns: 240px minmax(0, 1fr);
+    background: #f7f9fc;
+  }
 
- .main-panel {
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-}
+  .sidebar {
+    padding: 22px 18px 28px;
+  }
+
+  .main-panel {
+    padding: 24px 24px 32px;
+    display: flex;
+    flex-direction: column;
+  }
 
   .top-bar {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 24px;
-  background: transparent;
-  padding: 0;
-  border-radius: 0;
-  box-shadow: none;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 24px;
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .top-bar h2 {
+    margin: 0;
+    font-size: 2.2rem;
+    color: #0f172a;
+  }
+
+  .stats-row {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
 }
 
-.top-bar h2 {
-  margin: 0;
-  font-size: 28px;
-  color: #0f172a;
+@media (max-width: 992px) {
+  .dealer-dashboard {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    display: none;
+  }
+
+  .main-panel {
+    padding: 22px 18px;
+  }
+
+  .top-bar {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 18px;
+    background: #ffffff;
+    border-radius: 18px;
+    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.08);
+  }
+
+  .header-card {
+    width: 100%;
+  }
+
+  .stats-row {
+    padding: 16px;
+  }
+
+  .section {
+    padding: 16px 0 0;
+  }
+
+  .records-table {
+    min-width: 0;
+  }
 }
+
+@media (max-width: 768px) {
+  .main-panel {
+    padding: 18px 14px;
+  }
+
+  .top-bar {
+    padding: 16px;
+  }
+
+  .top-bar h2 {
+    font-size: 1.7rem;
+  }
 
   .stats-row {
     grid-template-columns: 1fr;
+    padding: 16px;
+  }
+
+  .scanner-toolbar,
+  .search-input-group,
+  .settings-tabs,
+  .language-options,
+  .form-actions {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .scanner-toolbar,
+  .search-input-group,
+  .settings-tabs,
+  .language-options,
+  .form-actions {
+    gap: 12px;
+  }
+
+  .scanner-layout,
+  .details-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .scanner-reader {
+    min-height: 280px;
+  }
+
+  .scanner-btn,
+  button.scanner-btn,
+  label.scanner-btn,
+  .search-button,
+  .language-button,
+  .save-button,
+  .cancel-button,
+  .edit-button,
+  .purchase-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .main-panel {
+    padding: 14px 12px;
+  }
+
+  .top-bar h2 {
+    font-size: 1.4rem;
+  }
+
+  .stat-card strong {
+    font-size: 1.3rem;
+  }
+
+  .search-card,
+  .settings-card,
+  .farmer-details-card {
+    padding: 18px;
+  }
+
+  .brand h1 {
+    font-size: 16px;
   }
 }
 
