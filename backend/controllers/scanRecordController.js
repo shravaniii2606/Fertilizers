@@ -101,19 +101,31 @@ async function listScanRecords(req, res) {
 async function getTotalBagsScanned(req, res) {
   try {
     const supabase = getSupabaseClient();
-    // Allow optional filtering by dealer_id and status (defaults to 'received')
+    // Allow optional filtering by dealer_id and status (defaults to both received and sold)
     const dealerId = req.query.dealer_id || null;
-    const statusFilter = req.query.status || 'received';
+    const statusFilter = req.query.status || 'received,sold';
 
     let query = supabase.from(scanRecordsTable).select('number_of_bags');
     if (dealerId) query = query.eq('dealer_id', dealerId);
-    if (statusFilter) query = query.eq('status', statusFilter);
+    if (statusFilter) {
+      const statusValues = statusFilter.split(',').map((status) => status.trim()).filter(Boolean);
+      if (statusValues.length === 1) {
+        query = query.eq('status', statusValues[0]);
+      } else if (statusValues.length > 1) {
+        query = query.in('status', statusValues);
+      }
+    }
 
     const { data, error } = await query;
 
     if (error) return res.status(500).json({ error: error.message });
 
-    const total = data.reduce((sum, row) => sum + (Number(row.number_of_bags) || 0), 0);
+    const total = data.reduce((sum, row) => {
+      const n = row && (row.number_of_bags === null || row.number_of_bags === undefined)
+        ? 1
+        : Number(row.number_of_bags) || 0;
+      return sum + n;
+    }, 0);
     return res.status(200).json({ total });
   } catch (error) {
     const causeMessage = error.cause?.message || error.cause?.code || null;
