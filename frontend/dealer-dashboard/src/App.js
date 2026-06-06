@@ -624,6 +624,7 @@ function ScannerPage(props) {
 
 function App() {
   const [currentPage, setCurrentPage] = useState('dashboard');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const dealerDetailsByLanguage = {
     en: {
       name: 'Raj Singh Dealer',
@@ -666,6 +667,11 @@ function App() {
   });
   const [selectedScanRecord, setSelectedScanRecord] = useState(null);
   const texts = translations[language];
+
+  const handleNavigate = (page) => {
+    setCurrentPage(page);
+    setIsSidebarOpen(false);
+  };
 
   const digitMap = {
     hi: { 0: '०', 1: '१', 2: '२', 3: '३', 4: '४', 5: '५', 6: '६', 7: '७', 8: '८', 9: '९' },
@@ -826,7 +832,7 @@ function App() {
 
   return (
     <div className="dealer-dashboard">
-      <aside className="sidebar">
+      <aside className={`sidebar ${isSidebarOpen ? 'mobile-open' : ''}`}>
         <div className="brand">
           <div className="brand-mark">F</div>
           <div>
@@ -836,17 +842,30 @@ function App() {
         </div>
 
         <nav className="nav-menu">
-          <button className={`nav-item ${currentPage === 'dashboard' ? 'active' : ''}`} onClick={() => setCurrentPage('dashboard')}>{texts.sidebarDashboard}</button>
-          <button className={`nav-item ${currentPage === 'scan' ? 'active' : ''}`} onClick={() => setCurrentPage('scan')}>{texts.sidebarScan}</button>
-          <button className={`nav-item ${currentPage === 'previous' ? 'active' : ''}`} onClick={() => setCurrentPage('previous')}>{texts.sidebarPrevious}</button>
-          <button className={`nav-item ${currentPage === 'sell' ? 'active' : ''}`} onClick={() => setCurrentPage('sell')}>{texts.sidebarSell}</button>
-          <button className={`nav-item ${currentPage === 'history' ? 'active' : ''}`} onClick={() => setCurrentPage('history')}>{texts.sidebarHistory}</button>
+          <button className={`nav-item ${currentPage === 'dashboard' ? 'active' : ''}`} onClick={() => handleNavigate('dashboard')}>{texts.sidebarDashboard}</button>
+          <button className={`nav-item ${currentPage === 'scan' ? 'active' : ''}`} onClick={() => handleNavigate('scan')}>{texts.sidebarScan}</button>
+          <button className={`nav-item ${currentPage === 'previous' ? 'active' : ''}`} onClick={() => handleNavigate('previous')}>{texts.sidebarPrevious}</button>
+          <button className={`nav-item ${currentPage === 'sell' ? 'active' : ''}`} onClick={() => handleNavigate('sell')}>{texts.sidebarSell}</button>
+          <button className={`nav-item ${currentPage === 'history' ? 'active' : ''}`} onClick={() => handleNavigate('history')}>{texts.sidebarHistory}</button>
 
-          <button className={`nav-item ${currentPage === 'settings' ? 'active' : ''}`} onClick={() => setCurrentPage('settings')}>{texts.sidebarSettings}</button>
+          <button className={`nav-item ${currentPage === 'settings' ? 'active' : ''}`} onClick={() => handleNavigate('settings')}>{texts.sidebarSettings}</button>
         </nav>
       </aside>
 
+      <div className={`mobile-nav-overlay ${isSidebarOpen ? 'is-open' : ''}`} onClick={() => setIsSidebarOpen(false)} />
+
       <main className="main-panel">
+        <button
+          type="button"
+          className={`mobile-nav-toggle${isSidebarOpen ? ' open' : ''}`}
+          onClick={() => setIsSidebarOpen((open) => !open)}
+          aria-label="Toggle navigation"
+          aria-expanded={isSidebarOpen}
+        >
+          <span />
+          <span />
+          <span />
+        </button>
         {currentPage === 'dashboard' && (
           <>
             <header className="top-bar">
